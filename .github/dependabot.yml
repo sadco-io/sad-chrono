@@ -1,6 +1,6 @@
 # Cargo version updates are disabled on purpose: sad-chrono is a drop-in replacement for
-# chrono 0.4, and bumping the requirement of a public dependency (e.g. rkyv 0.7 -> 0.8,
-# windows-link 0.2 -> 0.x) can change the public API, wire formats or MSRV. Dependency
+# chrono 0.4, and bumping the requirement of a public dependency (e.g. rkyv 0.8 -> 0.9,
+# windows-link 0.100 -> 0.101) can change the public API, wire formats or MSRV. Dependency
 # updates are reviewed manually; Dependabot security alerts stay enabled.
 # Workflow actions are SHA-pinned; Dependabot bumps both the commit SHAs and `# vX` comments.
 version: 2

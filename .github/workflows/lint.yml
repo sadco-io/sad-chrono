@@ -18,10 +18,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc
+          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, i686-pc-windows-msvc
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo fmt --check -- --color=always
@@ -32,6 +34,9 @@ jobs:
             -- -D warnings
       - run: |
           cargo clippy --target=x86_64-pc-windows-msvc --all-targets --color=always \
+            -- -D warnings
+      - run: |
+          cargo clippy --target=i686-pc-windows-msvc --all-targets --color=always \
             -- -D warnings
       - run: |
           cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --color=always \
@@ -46,16 +51,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2
 
   check-doc:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - run: cargo install --locked cargo-deadlinks
+      - run: cargo install --locked cargo-deadlinks@0.8.1
       - run: cargo deadlinks -- ${{ env.ALL_NON_EXCLUSIVE_FEATURES }}
       - run: cargo doc ${{ env.ALL_NON_EXCLUSIVE_FEATURES }} --no-deps
         env:
@@ -75,6 +84,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # Keep rust-toolchain and cargo-semver-checks pinned together:
       # cargo-semver-checks only reads the rustdoc JSON formats it was built for.
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
@@ -84,15 +95,20 @@ jobs:
         with:
           tool: cargo-semver-checks@0.51.0
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      # The 0.5 line keeps the chrono 0.4 public API, so every release, including
+      # 0.4.46 -> 0.5.0, is checked as non-breaking. Rust trait impls of rkyv 0.8
+      # are outside what the tool models.
       - run: |
-          cargo semver-checks check-release --default-features
-          cargo semver-checks check-release \
+          cargo semver-checks check-release --release-type minor --default-features
+          cargo semver-checks check-release --release-type minor \
             --only-explicit-features --features default,unstable-locales,rkyv-64,rkyv-validation,serde,arbitrary
 
   package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
@@ -109,12 +125,14 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: nightly
       - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
-          tool: cargo-fuzz
+          tool: cargo-fuzz@0.13.2
       - run: cargo fuzz run fuzz_tzif -- -max_total_time=60
         working-directory: fuzz
       - run: cargo fuzz run fuzz_tz_string -- -max_total_time=60
