@@ -931,15 +931,46 @@ const YEAR_FLAGS: [(i32, YearFlags, Weekday); 14] = [
 ];
 
 #[test]
-#[cfg(feature = "rkyv-validation")]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
 fn test_rkyv_validation() {
-    let date_min = NaiveDate::MIN;
-    let bytes = rkyv::to_bytes::<_, 4>(&date_min).unwrap();
-    assert_eq!(rkyv::from_bytes::<NaiveDate>(&bytes).unwrap(), date_min);
+    use core::mem::{MaybeUninit, size_of};
+    use core::ptr::addr_of;
 
-    let date_max = NaiveDate::MAX;
-    let bytes = rkyv::to_bytes::<_, 4>(&date_max).unwrap();
-    assert_eq!(rkyv::from_bytes::<NaiveDate>(&bytes).unwrap(), date_max);
+    for valid in [NaiveDate::MIN, NaiveDate::MAX, NaiveDate::from_ymd_opt(2024, 2, 29).unwrap()] {
+        let bytes = rkyv::to_bytes::<_, 4>(&valid).unwrap();
+        assert!(rkyv::check_archived_root::<NaiveDate>(&bytes).is_ok());
+        assert_eq!(rkyv::from_bytes::<NaiveDate>(&bytes).unwrap(), valid);
+    }
+
+    let bytes = rkyv::to_bytes::<_, 4>(&NaiveDate::MIN).unwrap();
+    let uninit = MaybeUninit::<super::ArchivedNaiveDate>::uninit();
+    let base = uninit.as_ptr() as usize;
+    let yof_off = unsafe { addr_of!((*uninit.as_ptr()).yof) as usize - base };
+    let root_off = bytes.len() - size_of::<super::ArchivedNaiveDate>();
+
+    let flags_2023 = super::YearFlags::from_year(2023).0 as i32;
+    let flags_2024 = super::YearFlags::from_year(2024).0 as i32;
+    let invalid_yofs = [
+        -1,
+        0,
+        ((super::MAX_YEAR + 1) << 13)
+            | (1 << 4)
+            | (super::YearFlags::from_year(super::MAX_YEAR + 1).0 as i32),
+        (2023 << 13) | (366 << 4) | flags_2023,
+        (2024 << 13) | (1 << 4) | flags_2023,
+        (2024 << 13) | flags_2024, // ordinal 0
+    ];
+
+    for bad_yof in invalid_yofs {
+        let mut tampered = bytes.clone();
+        let bad_bytes = rkyv::to_bytes::<_, 4>(&bad_yof).unwrap();
+        tampered[root_off + yof_off..root_off + yof_off + 4].copy_from_slice(&bad_bytes);
+        assert!(rkyv::check_archived_root::<NaiveDate>(&tampered).is_err());
+        assert!(rkyv::from_bytes::<NaiveDate>(&tampered).is_err());
+    }
 }
 
 //   MAX_YEAR-12-31 minus 0000-01-01

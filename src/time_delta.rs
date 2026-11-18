@@ -58,7 +58,6 @@ const SECS_PER_WEEK: i64 = 604_800;
     archive(compare(PartialEq, PartialOrd)),
     archive_attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeDelta {
     secs: i64,
@@ -1447,10 +1446,100 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     fn test_rkyv_validation() {
-        let duration = TimeDelta::try_seconds(1).unwrap();
-        let bytes = rkyv::to_bytes::<_, 16>(&duration).unwrap();
-        assert_eq!(rkyv::from_bytes::<TimeDelta>(&bytes).unwrap(), duration);
+        use core::mem::{MaybeUninit, size_of};
+        use core::ptr::addr_of;
+
+        for valid in
+            [TimeDelta::MIN, TimeDelta::MAX, TimeDelta::zero(), TimeDelta::try_seconds(1).unwrap()]
+        {
+            let bytes = rkyv::to_bytes::<_, 16>(&valid).unwrap();
+            assert!(rkyv::check_archived_root::<TimeDelta>(&bytes).is_ok());
+            assert_eq!(rkyv::from_bytes::<TimeDelta>(&bytes).unwrap(), valid);
+        }
+
+        let bytes = rkyv::to_bytes::<_, 16>(&TimeDelta::zero()).unwrap();
+        let uninit = MaybeUninit::<super::ArchivedTimeDelta>::uninit();
+        let base = uninit.as_ptr() as usize;
+        let secs_off = unsafe { addr_of!((*uninit.as_ptr()).secs) as usize - base };
+        let nanos_off = unsafe { addr_of!((*uninit.as_ptr()).nanos) as usize - base };
+        let root_off = bytes.len() - size_of::<super::ArchivedTimeDelta>();
+
+        let invalid_cases = [
+            (i64::MIN, 0),
+            (0, -1),
+            (0, 1_000_000_000),
+            (TimeDelta::MAX.secs, TimeDelta::MAX.nanos + 1),
+            (TimeDelta::MIN.secs, TimeDelta::MIN.nanos - 1),
+        ];
+
+        for (secs, nanos) in invalid_cases {
+            let mut tampered = bytes.clone();
+            let secs_bytes = rkyv::to_bytes::<_, 8>(&secs).unwrap();
+            let nanos_bytes = rkyv::to_bytes::<_, 4>(&nanos).unwrap();
+            tampered[root_off + secs_off..root_off + secs_off + 8].copy_from_slice(&secs_bytes);
+            tampered[root_off + nanos_off..root_off + nanos_off + 4].copy_from_slice(&nanos_bytes);
+            assert!(rkyv::check_archived_root::<TimeDelta>(&tampered).is_err());
+            assert!(rkyv::from_bytes::<TimeDelta>(&tampered).is_err());
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+mod rkyv_check {
+    use super::{ArchivedTimeDelta, TimeDelta};
+    use core::ptr::addr_of;
+    use rkyv::bytecheck::{CheckBytes, ErrorBox, StructCheckError};
+    use rkyv::{Archived, Deserialize, Infallible};
+
+    /// `core::num::TryFromIntError` implements `bytecheck::Error` both with and without
+    /// `bytecheck/std` (another crate can unify `rkyv/std` while `sad-chrono`'s `std` is off).
+    fn invalid(field_name: &'static str) -> StructCheckError {
+        StructCheckError { field_name, inner: ErrorBox::new(u8::try_from(256u16).unwrap_err()) }
+    }
+
+    impl<C: ?Sized> CheckBytes<C> for ArchivedTimeDelta {
+        type Error = StructCheckError;
+
+        #[allow(unreachable_code)] // `CheckBytes` on primitives returns `Infallible`
+        unsafe fn check_bytes<'a>(
+            value: *const Self,
+            context: &mut C,
+        ) -> Result<&'a Self, StructCheckError> {
+            let secs =
+                <Archived<i64> as CheckBytes<C>>::check_bytes(addr_of!((*value).secs), context)
+                    .map_err(|e| StructCheckError {
+                        field_name: "secs",
+                        inner: ErrorBox::new(e),
+                    })?;
+            let nanos =
+                <Archived<i32> as CheckBytes<C>>::check_bytes(addr_of!((*value).nanos), context)
+                    .map_err(|e| StructCheckError {
+                        field_name: "nanos",
+                        inner: ErrorBox::new(e),
+                    })?;
+            let secs: i64 = match Deserialize::<i64, _>::deserialize(secs, &mut Infallible) {
+                Ok(v) => v,
+                Err(e) => match e {},
+            };
+            let nanos: i32 = match Deserialize::<i32, _>::deserialize(nanos, &mut Infallible) {
+                Ok(v) => v,
+                Err(e) => match e {},
+            };
+            if nanos < 0 {
+                return Err(invalid("nanos"));
+            }
+            match TimeDelta::new(secs, nanos as u32) {
+                Some(d) if d.secs == secs && d.nanos == nanos => Ok(&*value),
+                _ => Err(invalid("secs")),
+            }
+        }
     }
 }

@@ -378,13 +378,64 @@ fn test_overflowing_offset() {
 }
 
 #[test]
-#[cfg(feature = "rkyv-validation")]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
 fn test_rkyv_validation() {
+    use core::mem::{MaybeUninit, size_of};
+    use core::ptr::addr_of;
+
     let t_min = NaiveTime::MIN;
     let bytes = rkyv::to_bytes::<_, 8>(&t_min).unwrap();
+    assert!(rkyv::check_archived_root::<NaiveTime>(&bytes).is_ok());
     assert_eq!(rkyv::from_bytes::<NaiveTime>(&bytes).unwrap(), t_min);
 
     let t_max = NaiveTime::MAX;
     let bytes = rkyv::to_bytes::<_, 8>(&t_max).unwrap();
+    assert!(rkyv::check_archived_root::<NaiveTime>(&bytes).is_ok());
     assert_eq!(rkyv::from_bytes::<NaiveTime>(&bytes).unwrap(), t_max);
+
+    let t_leap = NaiveTime::from_hms_nano_opt(23, 59, 59, 1_999_999_999).unwrap();
+    let leap_bytes = rkyv::to_bytes::<_, 8>(&t_leap).unwrap();
+    assert!(rkyv::check_archived_root::<NaiveTime>(&leap_bytes).is_ok());
+    assert_eq!(rkyv::from_bytes::<NaiveTime>(&leap_bytes).unwrap(), t_leap);
+
+    let t_non_minute_leap =
+        NaiveTime::from_hms_opt(23, 56, 4).unwrap().with_nanosecond(1_333_333_333).unwrap();
+    let non_minute_leap_bytes = rkyv::to_bytes::<_, 8>(&t_non_minute_leap).unwrap();
+    assert!(rkyv::check_archived_root::<NaiveTime>(&non_minute_leap_bytes).is_ok());
+    assert_eq!(rkyv::from_bytes::<NaiveTime>(&non_minute_leap_bytes).unwrap(), t_non_minute_leap);
+
+    let uninit = MaybeUninit::<super::ArchivedNaiveTime>::uninit();
+    let base = uninit.as_ptr() as usize;
+    let secs_off = unsafe { addr_of!((*uninit.as_ptr()).secs) as usize - base };
+    let frac_off = unsafe { addr_of!((*uninit.as_ptr()).frac) as usize - base };
+    let root_off = bytes.len() - size_of::<super::ArchivedNaiveTime>();
+
+    let tamper = |secs: u32, frac: u32| {
+        let mut tampered = bytes.clone();
+        let secs_bytes = rkyv::to_bytes::<_, 4>(&secs).unwrap();
+        let frac_bytes = rkyv::to_bytes::<_, 4>(&frac).unwrap();
+        tampered[root_off + secs_off..root_off + secs_off + 4].copy_from_slice(&secs_bytes);
+        tampered[root_off + frac_off..root_off + frac_off + 4].copy_from_slice(&frac_bytes);
+        tampered
+    };
+
+    let accepted = tamper(0, 1_500_000_000);
+    assert!(rkyv::check_archived_root::<NaiveTime>(&accepted).is_ok());
+    assert_eq!(
+        rkyv::from_bytes::<NaiveTime>(&accepted).unwrap(),
+        NaiveTime::from_hms_opt(0, 0, 0).unwrap().with_nanosecond(1_500_000_000).unwrap()
+    );
+
+    let check_rejected = |secs: u32, frac: u32| {
+        let tampered = tamper(secs, frac);
+        assert!(rkyv::check_archived_root::<NaiveTime>(&tampered).is_err());
+        assert!(rkyv::from_bytes::<NaiveTime>(&tampered).is_err());
+    };
+
+    check_rejected(86_400, 0);
+    check_rejected(0, 2_000_000_000);
+    check_rejected(u32::MAX, u32::MAX);
 }
