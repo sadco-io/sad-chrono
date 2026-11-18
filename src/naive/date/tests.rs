@@ -752,6 +752,38 @@ fn test_week_iterator_limit() {
 }
 
 #[test]
+fn test_iterator_reverse_from_start() {
+    let days: Vec<_> =
+        NaiveDate::from_ymd_opt(2016, 3, 1).unwrap().iter_days().rev().take(4).collect();
+    assert_eq!(
+        days,
+        [
+            NaiveDate::from_ymd_opt(2016, 3, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 2, 29).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 2, 28).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 2, 27).unwrap(),
+        ]
+    );
+
+    let weeks: Vec<_> =
+        NaiveDate::from_ymd_opt(2016, 3, 19).unwrap().iter_weeks().rev().take(4).collect();
+    assert_eq!(
+        weeks,
+        [
+            NaiveDate::from_ymd_opt(2016, 3, 19).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 3, 12).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 3, 5).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 2, 27).unwrap(),
+        ]
+    );
+
+    #[allow(clippy::manual_next_back)]
+    {
+        assert_eq!(NaiveDate::MAX.iter_days().rev().next(), Some(NaiveDate::MAX));
+    }
+}
+
+#[test]
 fn test_weeks_from() {
     // tests per: https://github.com/chronotope/chrono/issues/961
     // these internally use `weeks_from` via the parsing infrastructure
