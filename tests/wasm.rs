@@ -87,3 +87,11 @@ fn convert_all_parts_with_milliseconds() {
     assert_eq!(js_date.get_utc_seconds(), 55);
     assert_eq!(js_date.get_utc_milliseconds(), 974);
 }
+
+#[wasm_bindgen_test]
+fn pre_epoch_system_time_saturates_to_unix_epoch() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let pre_epoch = Utc.with_ymd_and_hms(1969, 1, 1, 0, 0, 0).unwrap();
+    assert_eq!(SystemTime::from(pre_epoch), UNIX_EPOCH);
+}

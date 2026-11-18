@@ -6,8 +6,8 @@
 ![Apache2/MIT licensed][license-image]
 ![MSRV][msrv-image]
 
-[gh-image]: https://github.com/sadco-io/sad-chrono/actions/workflows/test.yml/badge.svg?branch=main
-[gh-checks]: https://github.com/sadco-io/sad-chrono/actions/workflows/test.yml?query=branch%3Amain
+[gh-image]: https://github.com/sadco-io/sad-chrono/actions/workflows/test.yml/badge.svg?branch=0.4.x
+[gh-checks]: https://github.com/sadco-io/sad-chrono/actions/workflows/test.yml?query=branch%3A0.4.x
 [cratesio-image]: https://img.shields.io/crates/v/sad-chrono.svg
 [cratesio]: https://crates.io/crates/sad-chrono
 [docsrs-image]: https://docs.rs/sad-chrono/badge.svg
@@ -23,13 +23,33 @@ fixes that landed after `0.4.45` were never released. `sad-chrono` keeps the chr
 ships those fixes, and takes on new ones. It is maintained by the Sadco Security Team alongside
 [sad-rsa](https://github.com/sadco-io/sad-rsa).
 
+## Which version?
+
+* **0.5.x (recommended):** MSRV 1.85, `rkyv` 0.8, and every fix except the `tzdata` 1 MiB caps and
+  regular-file guard added in 0.4.47, which are planned for the next 0.5.x release (see the
+  [0.5 README](https://github.com/sadco-io/sad-chrono/blob/main/README.md)).
+* **0.4.x (this line):** security fixes only — MSRV 1.62, `rkyv` 0.7, a strict drop-in for
+  `chrono 0.4.x` builds that cannot move (also used by the transitive-dependency `[patch]` route
+  below).
+
+`sad-chrono 0.4.47` includes the `tzdata` allocation bound (now with absolute 1 MiB caps and a
+regular-file guard), value-invariant `rkyv` validation for `NaiveDate`, `NaiveTime`, `TimeDelta`,
+`FixedOffset`, and `IsoWeek`, the saturating `From<DateTime<Tz>> for SystemTime` conversion, and
+the `format()` `# Panics` documentation from 0.5.0. Only the `rkyv` 0.8 upgrade
+([RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235)) and validation of an
+archived `DateTime<Tz>`'s local-time range (which would require trait bounds that change the `0.4`
+API) are `0.5`-only.
+
+`sad-chrono 0.5` is **chrono 0.4's API with current dependencies**. It is not upstream's unreleased
+chrono 0.5 / `0.5.0-alpha` API.
+
 ## Usage
 
 To switch your own code over without changing any `use chrono::...` paths, rename the dependency:
 
 ```toml
 [dependencies]
-chrono = { package = "sad-chrono", version = "0.4.46" }
+chrono = { package = "sad-chrono", version = "0.4.47" }
 ```
 
 > **Check your dependencies first.** `sad_chrono::DateTime` and `chrono::DateTime` are distinct
@@ -46,7 +66,7 @@ Or depend on it under its own name and import from `sad_chrono`:
 
 ```toml
 [dependencies]
-sad-chrono = "0.4.46"
+sad-chrono = "0.4.47"
 ```
 
 ```rust
@@ -64,7 +84,7 @@ Feature flags are the same as chrono's (see [Crate features](#crate-features)).
 [`6adaa52`][fork-point]). The public API, feature flags, MSRV and serialization formats (serde,
 rkyv) are unchanged from chrono `0.4.45`. The only behavior changes are fixes for inputs that
 previously panicked, exhausted resources, or returned wrong or invalid results; they are listed in
-the [changelog](CHANGELOG.md).
+the [changelog](https://github.com/sadco-io/sad-chrono/blob/0.4.x/CHANGELOG.md).
 
 ### Transitive dependencies
 
@@ -75,7 +95,7 @@ not used in the crate graph. Applications that want `sad-chrono` everywhere can 
 vendored copy whose package name is set to `chrono`:
 
 ```sh
-git clone --depth 1 --branch v0.4.46 https://github.com/sadco-io/sad-chrono vendor/chrono
+git clone --depth 1 --branch v0.4.47 https://github.com/sadco-io/sad-chrono vendor/chrono
 sed -i.bak 's/^name = "sad-chrono"/name = "chrono"/' vendor/chrono/Cargo.toml
 rm -rf vendor/chrono/.git vendor/chrono/Cargo.toml.bak
 ```
@@ -86,12 +106,12 @@ chrono = { path = "vendor/chrono" }
 ```
 
 Then run `cargo update -p chrono`, and verify that `cargo tree -i chrono` shows
-`chrono v0.4.46 (vendor/chrono)`. Keep your own dependency as plain `chrono = "0.4"` without the
+`chrono v0.4.47 (vendor/chrono)`. Keep your own dependency as plain `chrono = "0.4"` without the
 package rename so that all crates share one `DateTime` type.
 
 Constraints:
 
-* This works only when every `chrono` requirement in the dependency graph accepts `0.4.46` (a
+* This works only when every `chrono` requirement in the dependency graph accepts `0.4.47` (a
   `^0.4` requirement); an exact pin such as `=0.4.40` blocks it.
 * `[patch]` applies only in the top-level workspace, so a library cannot apply this for its users.
 
@@ -101,7 +121,7 @@ Libraries can switch with the same rename:
 
 ```toml
 [dependencies]
-chrono = { package = "sad-chrono", version = "0.4.46" }
+chrono = { package = "sad-chrono", version = "0.4.47" }
 ```
 
 Because the dependency key stays `chrono`, your `use chrono::...` paths,
@@ -109,7 +129,15 @@ Because the dependency key stays `chrono`, your `use chrono::...` paths,
 `chrono = ["dep:chrono"]` or `serde = ["chrono?/serde"]` keep working. Enable every `sad-chrono`
 feature you use explicitly: features of `chrono` and `sad-chrono` do not unify.
 
-**Is it a breaking change?** `sad_chrono::DateTime` and `chrono::DateTime` are distinct types. If
+**Which line?** `sad-chrono = "0.5"` is recommended (see the
+[0.5 guide for library authors](https://github.com/sadco-io/sad-chrono/blob/main/README.md#for-library-authors)),
+but it requires Rust 1.85.0 on every target, and `rkyv` 0.8 for downstream users who enable
+`rkyv*` features. Use `"0.4"` only when you must support older Rust versions or `rkyv` 0.7.
+`sad-chrono 0.4` and `sad-chrono 0.5` types are distinct, so moving a public API from `0.4` to
+`0.5` later is a breaking change.
+
+**Is it a breaking change?** `sad_chrono::DateTime` and `chrono::DateTime` (as well as
+`sad-chrono 0.4` and `sad-chrono 0.5` types) are distinct types. If
 `chrono` types appear in your public API (function signatures, public fields, trait impls, or
 `pub use chrono`), switching breaks callers that pass upstream `chrono` values. Release the switch
 as a new semver-major version, or support both behind separate features (for example
@@ -124,12 +152,14 @@ or RFC 3339 strings.
 ## Stability and versioning
 
 `sad-chrono 0.4.x` keeps the public API of `chrono 0.4` and will not make semver-incompatible
-changes on the `0.4` line. Version numbers continue `chrono`'s `0.4` sequence independently of
-upstream: `sad-chrono 0.4.46` contains `chrono 0.4.45` plus the fixes listed in
-[CHANGELOG.md](CHANGELOG.md). When upstream publishes a new `0.4.x` release, we merge it into the
-next `sad-chrono` release, and each release's changelog states which `chrono` version and which
-fixes it includes (even if `sad-chrono`'s patch number has already moved ahead of upstream's).
-Upstream fixes are backported with `git cherry-pick -x` and credit their authors.
+changes on the `0.4` line. `0.4.x` is now security-fixes-only; new work lands in `0.5.x`. Version
+numbers continue `chrono`'s `0.4` sequence independently of upstream: `sad-chrono 0.4.47` contains
+`chrono 0.4.45` plus the fixes listed in
+[CHANGELOG.md](https://github.com/sadco-io/sad-chrono/blob/0.4.x/CHANGELOG.md). Security fixes
+from any new upstream `0.4.x` release are backported to the next `sad-chrono 0.4.x` release, and
+each release's changelog states which `chrono` version and which fixes it includes (even if
+`sad-chrono`'s patch number has already moved ahead of upstream's). Backports use
+`git cherry-pick -x` and credit their authors.
 
 MSRV is Rust 1.62.0. It is raised only in a release whose changelog says so, and never above the
 MSRV of the latest upstream chrono 0.4 release.
@@ -146,11 +176,15 @@ Fixes in `sad-chrono` that are not in any released version of chrono:
 | `TZ` pointing to a non-regular file or > 1 MiB file (e.g. `/dev/zero`, FIFO) | Unbounded read / memory exhaustion or hang | Rejected before reading (`is_file()`) or capped at 1 MiB; `Local` falls back |
 | TZif transition times near `i64::MIN` / `i64::MAX` | Overflow panic when mapping a local time (wraps in release builds) | Saturating arithmetic, no panic |
 | Android / OpenHarmony tzdata index with a partial trailing entry | Out-of-bounds slice panic | Partial entry skipped |
+| Android / OpenHarmony tzdata with oversized header or entry lengths (0.4.47) | Up to 4 GiB allocation before failing (panic or abort on 32-bit targets) | Rejected against file length and 1 MiB caps before allocating |
+| Android / OpenHarmony tzdata path that is a FIFO or non-regular file (0.4.47) | Blocks in `File::open` | Rejected before opening (`is_file()`) |
 | `DateTime<Utc>::from(SystemTime)` outside `DateTime`'s range ([chrono#1802][audit]) | Panic | Saturates to `DateTime::MIN_UTC` / `MAX_UTC` |
+| `From<DateTime<Tz>> for SystemTime` outside platform range (0.4.47) | Panic | Saturates to the nearest representable `SystemTime` |
 | `NaiveDate::from_isoywd_opt` with `i32::MIN` / `i32::MAX` years | Overflow panic in builds with overflow checks (wraps in release builds) | Returns `None`, as documented |
 | Formatting offsets of `±23:59:30` or more to minute precision | Emits `+24:00`, which fails to parse back | Clamped to `+23:59` |
+| Validated `rkyv` archives with out-of-range `NaiveDate`, `NaiveTime`, `TimeDelta`, `FixedOffset`, or `IsoWeek` values (0.4.47) | Accepted; later use could panic or return wrong values | Rejected by `CheckBytes` invariant checks (active with `rkyv-validation`; `DateTime<Tz>` local-time range check is `0.5`-only) |
 
-See the [changelog](CHANGELOG.md) for the full list, and [SECURITY.md](SECURITY.md) to report a
+See the [changelog](https://github.com/sadco-io/sad-chrono/blob/0.4.x/CHANGELOG.md) for the full list, and [SECURITY.md](https://github.com/sadco-io/sad-chrono/blob/0.4.x/SECURITY.md) to report a
 vulnerability.
 
 [upstream]: https://github.com/chronotope/chrono
@@ -222,9 +256,14 @@ Note: The `rkyv{,-16,-32,-64}` features are mutually exclusive.
 The `rkyv*` features use rkyv 0.7, which is no longer maintained upstream and is affected by
 [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235) (out-of-bounds reads when
 validating untrusted archives that contain `Rc`, `Arc` or weak pointers to unsized data).
-sad-chrono's archived types contain no shared pointers, but if you validate untrusted rkyv archives
-of your own types, review the advisory. sad-chrono stays on rkyv 0.7 because moving to 0.8 would
-break compatibility for existing `rkyv*` users.
+`sad-chrono`'s archived types contain no shared pointers, but if you validate untrusted rkyv
+archives of your own types, review the advisory. The `0.4.x` line stays on rkyv 0.7 for
+compatibility, while **0.5.x** uses rkyv 0.8.18, which fixes the advisory. As of `0.4.47`,
+`rkyv-validation` checks value invariants of `sad-chrono`'s archived types (`NaiveDate`,
+`NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek`), except the local-time range of
+`DateTime<Tz>`: before calling local-time methods such as `naive_local()` on a deserialized
+`DateTime<Tz>`, check `dt.naive_utc().checked_add_offset(dt.offset().fix()).is_some()` (with
+`sad_chrono::Offset` in scope).
 
 [serde]: https://github.com/serde-rs/serde
 [rkyv]: https://github.com/rkyv/rkyv
@@ -244,4 +283,4 @@ This project is licensed under either of
 at your option.
 
 `sad-chrono` is derived from [chrono][upstream], Copyright (c) 2014--2026, Kang Seonghoon and
-contributors. See [NOTICE](NOTICE) for attribution and a summary of modifications.
+contributors. See [NOTICE](https://github.com/sadco-io/sad-chrono/blob/0.4.x/NOTICE) for attribution and a summary of modifications.

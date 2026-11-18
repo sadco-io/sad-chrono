@@ -10,6 +10,76 @@ earlier ones further down this file.
 Entries reference the upstream chrono pull request or issue each change came
 from, as `chrono#NNNN`.
 
+## sad-chrono 0.4.47
+
+Security release on the 0.4 maintenance line. It is API-compatible with
+0.4.46, and the MSRV (1.62.0) and rkyv 0.7 are unchanged.
+[`sad-chrono 0.5.0`](https://github.com/sadco-io/sad-chrono/blob/main/CHANGELOG.md#sad-chrono-050)
+(MSRV 1.85, rkyv 0.8) is the recommended line; `0.4.x` receives security
+fixes only.
+
+### Security and robustness
+
+* Android and OpenHarmony `tzdata`: header index-region and per-entry lengths
+  are checked against the file length (`SeekFrom::End(0)`) and capped at 1 MiB
+  before allocating, the reader seeks to `index_offset` before reading the
+  index, and the `tzdata` path must be a regular file (`is_file()` checked
+  before opening and again on the opened `File`, preventing hangs on FIFOs or
+  special files). Previously a malformed bundle could make the reader allocate
+  up to 4 GiB before failing on 64-bit targets, and panic (`capacity overflow`)
+  or abort on 32-bit. Malformed bundles are now rejected with `UnexpectedEof`
+  or `InvalidData`, and non-regular paths with `InvalidInput` (file-length
+  bounds backported from `0.5.0`; 1 MiB caps and regular-file guard new in
+  `0.4.47`).
+* With `rkyv-validation`, `CheckBytes` validation now enforces value
+  invariants (not just structural layout) for `NaiveDate`, `NaiveTime`,
+  `TimeDelta`, `FixedOffset`, and `IsoWeek`, so untrusted archives containing
+  out-of-range or inconsistent values are rejected during validation instead
+  of panicking or returning wrong values on subsequent use.
+* `From<DateTime<Tz>> for SystemTime` now saturates to the platform's nearest
+  representable `SystemTime` using `checked_add` / `checked_sub` and binary
+  search, and normalizes leap seconds before inverting pre-epoch offsets.
+  Previously the conversion panicked on Windows below 1601 or above 30828,
+  and before 1970 on `wasm32-unknown-unknown` (backported from `0.5.0`).
+* Document `# Panics` sections on `DateTime::format`, `NaiveDateTime::format`,
+  `NaiveDate::format`, and `NaiveTime::format` covering all failure classes
+  (invalid specifiers, parse-only specifiers such as `%#z`, and specifiers for
+  fields the type lacks), and recommend `write!` / `core::fmt::Write` with
+  error handling for untrusted format strings (backported from `0.5.0`).
+
+### Fixes
+
+* Android and OpenHarmony `tzdata`: restore compilation on Rust 1.62–1.79
+  (import `std::mem::size_of` and use named generic parameters on
+  `find_tz_data` / `TzDataIndexes::new`) and fix on-device test argument types,
+  so the documented 1.62.0 MSRV holds for those targets and the on-device tests
+  compile. On Rust older than 1.63, Android builds also need `cargo update -p
+  libc --precise 0.2.163`, because Cargo before 1.84 doesn't select
+  MSRV-compatible dependency versions.
+
+### Known issues (0.4.x line)
+
+* The `rkyv*` features still use rkyv 0.7 and are affected by
+  [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235), which
+  is unchanged from 0.4.46. Fixed in 0.5.0 by rkyv 0.8.18.
+* With `rkyv-validation`, the archived `DateTime<Tz>` local-time range is not
+  validated (enforcing it generically would require extra `Tz::Offset` bounds
+  that change the `0.4` API). A validated archive can hold a UTC date-time
+  plus offset whose local time is out of range, so methods such as
+  `naive_local()` can panic. Mitigation: check
+  `dt.naive_utc().checked_add_offset(dt.offset().fix()).is_some()` (with
+  `Offset` in scope) before use. `0.5.x` validates this.
+
+### CI
+
+* Workflows now run on pushes to `0.4.x`. All actions are pinned to commit
+  SHAs, tool versions (including `wasm-pack`) are pinned, checkouts set
+  `persist-credentials: false`, baselines are fetched by commit, `rust_msrv`
+  adds an Android MSRV check, `alternative_targets` adds OpenHarmony and
+  checks Android tests, `semver` adds a frozen-API reverse check against
+  `0.4.46` and a `Cargo.toml` MSRV guard, and the stale `RUSTSEC-2026-0173`
+  ignore is removed from `deny.toml`.
+
 ## sad-chrono 0.4.46
 
 First release of `sad-chrono`. It is API-compatible with chrono 0.4.45 and

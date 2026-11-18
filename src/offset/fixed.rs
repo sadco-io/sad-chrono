@@ -26,7 +26,6 @@ use crate::naive::{NaiveDate, NaiveDateTime};
     archive(compare(PartialEq)),
     archive_attr(derive(Clone, Copy, PartialEq, Eq, Hash, Debug))
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 pub struct FixedOffset {
     local_minus_utc: i32,
 }
@@ -244,10 +243,82 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     fn test_rkyv_validation() {
-        let offset = FixedOffset::from_str("-0500").unwrap();
-        let bytes = rkyv::to_bytes::<_, 4>(&offset).unwrap();
-        assert_eq!(rkyv::from_bytes::<FixedOffset>(&bytes).unwrap(), offset);
+        use core::mem::{MaybeUninit, size_of};
+        use core::ptr::addr_of;
+
+        for valid in [
+            FixedOffset::east_opt(-86_399).unwrap(),
+            FixedOffset::east_opt(0).unwrap(),
+            FixedOffset::east_opt(86_399).unwrap(),
+            FixedOffset::from_str("-0500").unwrap(),
+        ] {
+            let bytes = rkyv::to_bytes::<_, 4>(&valid).unwrap();
+            assert!(rkyv::check_archived_root::<FixedOffset>(&bytes).is_ok());
+            assert_eq!(rkyv::from_bytes::<FixedOffset>(&bytes).unwrap(), valid);
+        }
+
+        let bytes = rkyv::to_bytes::<_, 4>(&FixedOffset::east_opt(0).unwrap()).unwrap();
+        let uninit = MaybeUninit::<super::ArchivedFixedOffset>::uninit();
+        let base = uninit.as_ptr() as usize;
+        let offset_off = unsafe { addr_of!((*uninit.as_ptr()).local_minus_utc) as usize - base };
+        let root_off = bytes.len() - size_of::<super::ArchivedFixedOffset>();
+
+        for bad_secs in [86_400, -86_400, i32::MAX, i32::MIN] {
+            let mut tampered = bytes.clone();
+            let bad_bytes = rkyv::to_bytes::<_, 4>(&bad_secs).unwrap();
+            tampered[root_off + offset_off..root_off + offset_off + 4].copy_from_slice(&bad_bytes);
+            assert!(rkyv::check_archived_root::<FixedOffset>(&tampered).is_err());
+            assert!(rkyv::from_bytes::<FixedOffset>(&tampered).is_err());
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+mod rkyv_check {
+    use super::{ArchivedFixedOffset, FixedOffset};
+    use core::ptr::addr_of;
+    use rkyv::bytecheck::{CheckBytes, ErrorBox, StructCheckError};
+    use rkyv::{Archived, Deserialize, Infallible};
+
+    /// `core::num::TryFromIntError` implements `bytecheck::Error` both with and without
+    /// `bytecheck/std` (another crate can unify `rkyv/std` while `sad-chrono`'s `std` is off).
+    fn invalid(field_name: &'static str) -> StructCheckError {
+        StructCheckError { field_name, inner: ErrorBox::new(u8::try_from(256u16).unwrap_err()) }
+    }
+
+    impl<C: ?Sized> CheckBytes<C> for ArchivedFixedOffset {
+        type Error = StructCheckError;
+
+        #[allow(unreachable_code)] // `CheckBytes` on primitives returns `Infallible`
+        unsafe fn check_bytes<'a>(
+            value: *const Self,
+            context: &mut C,
+        ) -> Result<&'a Self, StructCheckError> {
+            let local_minus_utc = <Archived<i32> as CheckBytes<C>>::check_bytes(
+                addr_of!((*value).local_minus_utc),
+                context,
+            )
+            .map_err(|e| StructCheckError {
+                field_name: "local_minus_utc",
+                inner: ErrorBox::new(e),
+            })?;
+            let local_minus_utc: i32 =
+                match Deserialize::<i32, _>::deserialize(local_minus_utc, &mut Infallible) {
+                    Ok(v) => v,
+                    Err(e) => match e {},
+                };
+            if FixedOffset::east_opt(local_minus_utc).is_none() {
+                return Err(invalid("local_minus_utc"));
+            }
+            Ok(&*value)
+        }
     }
 }

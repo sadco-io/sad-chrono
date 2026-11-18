@@ -1508,6 +1508,61 @@ fn test_from_system_time() {
         SystemTime::from(epoch.with_timezone(&FixedOffset::west_opt(28800).unwrap())),
         UNIX_EPOCH
     );
+
+    // Leap second just before UNIX_EPOCH: 1969-12-31T23:59:60.500Z == UNIX_EPOCH + 0.5s.
+    let pre_epoch_leap = NaiveDate::from_ymd_opt(1969, 12, 31)
+        .unwrap()
+        .and_hms_milli_opt(23, 59, 59, 1_500)
+        .unwrap()
+        .and_utc();
+    assert_eq!(SystemTime::from(pre_epoch_leap), UNIX_EPOCH + Duration::from_millis(500));
+
+    // Extreme DateTime -> SystemTime saturates instead of panicking on platforms with a narrower range.
+    let min_sys = SystemTime::from(DateTime::<Utc>::MIN_UTC);
+    let max_sys = SystemTime::from(DateTime::<Utc>::MAX_UTC);
+    assert!(min_sys <= UNIX_EPOCH);
+    assert!(max_sys >= UNIX_EPOCH);
+    let min_dur = Duration::new(DateTime::<Utc>::MIN_UTC.timestamp().unsigned_abs(), 0);
+    if let Some(expected_min) = UNIX_EPOCH.checked_sub(min_dur) {
+        assert_eq!(min_sys, expected_min);
+    }
+    let max_dur = Duration::new(
+        DateTime::<Utc>::MAX_UTC.timestamp() as u64,
+        DateTime::<Utc>::MAX_UTC.timestamp_subsec_nanos(),
+    );
+    if let Some(expected_max) = UNIX_EPOCH.checked_add(max_dur) {
+        assert_eq!(max_sys, expected_max);
+    }
+    #[cfg(windows)]
+    {
+        // Windows FILETIME spans 1601-01-01 (0 intervals) through ~30828-09-14 (i64::MAX intervals).
+        let win_min = UNIX_EPOCH.checked_sub(Duration::from_secs(11_644_473_600)).unwrap();
+        assert_eq!(min_sys, win_min);
+        assert!(min_sys.checked_sub(Duration::from_nanos(100)).is_none());
+        assert!(max_sys > UNIX_EPOCH);
+        assert!(max_sys.checked_add(Duration::from_nanos(100)).is_none());
+    }
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn test_saturate_system_time() {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    // Windows SystemTime has 100ns FILETIME resolution, so 1ns rounds down to 0 intervals.
+    let step = if cfg!(windows) { Duration::from_nanos(100) } else { Duration::from_nanos(1) };
+
+    let sat_max = super::saturate_system_time(false, u64::MAX);
+    assert!(sat_max.checked_add(step).is_none());
+    if UNIX_EPOCH.checked_add(step).is_some() {
+        assert_ne!(sat_max, UNIX_EPOCH);
+    }
+
+    let sat_min = super::saturate_system_time(true, u64::MAX);
+    assert!(sat_min.checked_sub(step).is_none());
+    if UNIX_EPOCH.checked_sub(step).is_some() {
+        assert_ne!(sat_min, UNIX_EPOCH);
+    }
 }
 
 #[test]

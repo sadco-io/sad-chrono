@@ -98,7 +98,6 @@ mod tests;
     archive(compare(PartialEq, PartialOrd)),
     archive_attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 pub struct NaiveDate {
     yof: NonZeroI32, // (year << 13) | of
 }
@@ -1272,9 +1271,29 @@ impl NaiveDate {
     ///
     /// # Panics
     ///
-    /// Converting or formatting the returned `DelayedFormat` panics if the format string is wrong.
-    /// Because of this delayed failure, you are recommended to immediately use the `DelayedFormat`
-    /// value.
+    /// Formatting the returned `DelayedFormat` through `Display` (`to_string()`, `format!`)
+    /// panics if formatting fails, because `Display::fmt` returns `fmt::Error`. Formatting fails
+    /// when `fmt` contains:
+    ///
+    /// - invalid or unrecognized specifiers;
+    /// - parse-only specifiers such as `%#z`;
+    /// - specifiers for fields the type lacks (time fields on `NaiveDate`, date fields on
+    ///   `NaiveTime`, and timezone specifiers such as `%z`, `%:z`, or `%Z` on naive types).
+    ///
+    /// For untrusted format strings, use `write!` (via [`core::fmt::Write`]) and handle the
+    /// `fmt::Result` error instead of calling `to_string()` or `format!`:
+    ///
+    /// ```
+    /// use core::fmt::Write;
+    /// use sad_chrono::NaiveDate;
+    ///
+    /// let d = NaiveDate::from_ymd_opt(2015, 9, 5).unwrap();
+    /// let mut out = String::new();
+    /// assert!(write!(out, "{}", d.format("%H")).is_err());
+    /// out.clear();
+    /// assert!(write!(out, "{}", d.format("%Y-%m-%d")).is_ok());
+    /// assert_eq!(out, "2015-09-05");
+    /// ```
     ///
     /// # Example
     ///
@@ -2641,6 +2660,55 @@ mod serde {
             let encoded = serialize(&d).unwrap();
             let decoded: NaiveDate = deserialize(&encoded).unwrap();
             assert_eq!(d, decoded);
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+mod rkyv_check {
+    use super::{ArchivedNaiveDate, NaiveDate, ORDINAL_MASK};
+    use core::num::NonZeroI32;
+    use core::ptr::addr_of;
+    use rkyv::bytecheck::{CheckBytes, ErrorBox, StructCheckError};
+    use rkyv::{Archived, Deserialize, Infallible};
+
+    /// `core::num::TryFromIntError` implements `bytecheck::Error` both with and without
+    /// `bytecheck/std` (another crate can unify `rkyv/std` while `sad-chrono`'s `std` is off).
+    fn invalid(field_name: &'static str) -> StructCheckError {
+        StructCheckError { field_name, inner: ErrorBox::new(u8::try_from(256u16).unwrap_err()) }
+    }
+
+    impl<C: ?Sized> CheckBytes<C> for ArchivedNaiveDate {
+        type Error = StructCheckError;
+
+        unsafe fn check_bytes<'a>(
+            value: *const Self,
+            context: &mut C,
+        ) -> Result<&'a Self, StructCheckError> {
+            let yof = <Archived<NonZeroI32> as CheckBytes<C>>::check_bytes(
+                addr_of!((*value).yof),
+                context,
+            )
+            .map_err(|e| StructCheckError { field_name: "yof", inner: ErrorBox::new(e) })?;
+            let yof: NonZeroI32 =
+                match Deserialize::<NonZeroI32, _>::deserialize(yof, &mut Infallible) {
+                    Ok(v) => v,
+                    Err(e) => match e {},
+                };
+            let yof = yof.get();
+            let year = yof >> 13;
+            let ordinal = ((yof & ORDINAL_MASK) >> 4) as u32;
+            let ok = match NaiveDate::from_yo_opt(year, ordinal) {
+                Some(d) => d.yof.get() == yof,
+                None => false,
+            };
+            if !ok {
+                return Err(invalid("yof"));
+            }
+            Ok(&*value)
         }
     }
 }

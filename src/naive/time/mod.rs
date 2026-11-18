@@ -216,7 +216,6 @@ mod tests;
     archive(compare(PartialEq, PartialOrd)),
     archive_attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 pub struct NaiveTime {
     secs: u32,
     frac: u32,
@@ -842,6 +841,32 @@ impl NaiveTime {
     /// A wrong format string does *not* issue an error immediately.
     /// Rather, converting or formatting the `DelayedFormat` fails.
     /// You are recommended to immediately use `DelayedFormat` for this reason.
+    ///
+    /// # Panics
+    ///
+    /// Formatting the returned `DelayedFormat` through `Display` (`to_string()`, `format!`)
+    /// panics if formatting fails, because `Display::fmt` returns `fmt::Error`. Formatting fails
+    /// when `fmt` contains:
+    ///
+    /// - invalid or unrecognized specifiers;
+    /// - parse-only specifiers such as `%#z`;
+    /// - specifiers for fields the type lacks (time fields on `NaiveDate`, date fields on
+    ///   `NaiveTime`, and timezone specifiers such as `%z`, `%:z`, or `%Z` on naive types).
+    ///
+    /// For untrusted format strings, use `write!` (via [`core::fmt::Write`]) and handle the
+    /// `fmt::Result` error instead of calling `to_string()` or `format!`:
+    ///
+    /// ```
+    /// use core::fmt::Write;
+    /// use sad_chrono::NaiveTime;
+    ///
+    /// let t = NaiveTime::from_hms_opt(23, 56, 4).unwrap();
+    /// let mut out = String::new();
+    /// assert!(write!(out, "{}", t.format("%Y")).is_err());
+    /// out.clear();
+    /// assert!(write!(out, "{}", t.format("%H:%M:%S")).is_ok());
+    /// assert_eq!(out, "23:56:04");
+    /// ```
     ///
     /// # Example
     ///
@@ -1664,5 +1689,60 @@ impl str::FromStr for NaiveTime {
 impl Default for NaiveTime {
     fn default() -> Self {
         NaiveTime::from_hms_opt(0, 0, 0).unwrap()
+    }
+}
+
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+mod rkyv_check {
+    use super::ArchivedNaiveTime;
+    use core::ptr::addr_of;
+    use rkyv::bytecheck::{CheckBytes, ErrorBox, StructCheckError};
+    use rkyv::{Archived, Deserialize, Infallible};
+
+    /// `core::num::TryFromIntError` implements `bytecheck::Error` both with and without
+    /// `bytecheck/std` (another crate can unify `rkyv/std` while `sad-chrono`'s `std` is off).
+    fn invalid(field_name: &'static str) -> StructCheckError {
+        StructCheckError { field_name, inner: ErrorBox::new(u8::try_from(256u16).unwrap_err()) }
+    }
+
+    impl<C: ?Sized> CheckBytes<C> for ArchivedNaiveTime {
+        type Error = StructCheckError;
+
+        #[allow(unreachable_code)] // `CheckBytes` on primitives returns `Infallible`
+        unsafe fn check_bytes<'a>(
+            value: *const Self,
+            context: &mut C,
+        ) -> Result<&'a Self, StructCheckError> {
+            let secs =
+                <Archived<u32> as CheckBytes<C>>::check_bytes(addr_of!((*value).secs), context)
+                    .map_err(|e| StructCheckError {
+                        field_name: "secs",
+                        inner: ErrorBox::new(e),
+                    })?;
+            let frac =
+                <Archived<u32> as CheckBytes<C>>::check_bytes(addr_of!((*value).frac), context)
+                    .map_err(|e| StructCheckError {
+                        field_name: "frac",
+                        inner: ErrorBox::new(e),
+                    })?;
+            let secs: u32 = match Deserialize::<u32, _>::deserialize(secs, &mut Infallible) {
+                Ok(v) => v,
+                Err(e) => match e {},
+            };
+            let frac: u32 = match Deserialize::<u32, _>::deserialize(frac, &mut Infallible) {
+                Ok(v) => v,
+                Err(e) => match e {},
+            };
+            if secs >= 86_400 {
+                return Err(invalid("secs"));
+            }
+            if frac >= 2_000_000_000 {
+                return Err(invalid("frac"));
+            }
+            Ok(&*value)
+        }
     }
 }
