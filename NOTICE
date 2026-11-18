@@ -1,0 +1,32 @@
+sad-chrono
+Copyright 2026 Sadco Security Team
+
+This project is a maintained fork of the chrono crate, kept API-compatible
+with the chrono 0.4 line and carrying security and robustness fixes.
+
+Original chrono Crate
+=====================
+Copyright (c) 2014--2026, Kang Seonghoon and contributors
+
+The original chrono crate was developed by the chronotope project:
+https://github.com/chronotope/chrono
+
+chrono is dual-licensed under the MIT License and the Apache License,
+Version 2.0. sad-chrono is distributed under the same terms; see
+LICENSE.txt for both license texts.
+
+Modifications
+=============
+This fork includes the following changes relative to chrono 0.4.45:
+
+- Unreleased upstream fixes from chrono's main branch, including time
+  zone data hardening (TZif local time lookup overflow, Android and
+  OpenHarmony tzdata index bounds) and panic and correctness fixes in
+  date construction, iteration and offset formatting
+- Pending upstream fixes for chrono#1802: checked arithmetic for TZif
+  data block lengths, and a saturating, non-panicking
+  From<SystemTime> for DateTime<Utc>
+- The crate is published as `sad-chrono` (library `sad_chrono`)
+
+These modifications were developed by the Sadco Security Team with
+assistance from Claude (Anthropic).

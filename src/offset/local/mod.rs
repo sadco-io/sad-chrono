@@ -107,7 +107,7 @@ mod tz_info;
 /// # Example
 ///
 /// ```
-/// use chrono::{DateTime, Local, TimeZone};
+/// use sad_chrono::{DateTime, Local, TimeZone};
 ///
 /// let dt1: DateTime<Local> = Local::now();
 /// let dt2: DateTime<Local> = Local.timestamp_opt(0, 0).unwrap();
@@ -144,7 +144,7 @@ impl Local {
     ///
     /// ```
     /// # #![allow(unused_variables)]
-    /// # use chrono::{DateTime, FixedOffset, Local};
+    /// # use sad_chrono::{DateTime, FixedOffset, Local};
     /// // Current local time
     /// let now = Local::now();
     ///

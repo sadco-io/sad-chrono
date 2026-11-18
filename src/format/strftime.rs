@@ -214,7 +214,7 @@ impl<'a> StrftimeItems<'a> {
     /// # Example
     ///
     /// ```
-    /// use chrono::format::*;
+    /// use sad_chrono::format::*;
     ///
     /// let strftime_parser = StrftimeItems::new("%F"); // %F: year-month-day (ISO 8601)
     ///
@@ -247,7 +247,7 @@ impl<'a> StrftimeItems<'a> {
     /// # Example
     ///
     /// ```
-    /// use chrono::format::*;
+    /// use sad_chrono::format::*;
     ///
     /// let strftime_parser = StrftimeItems::new_lenient("%Y-%Q"); // %Y: year, %Q: invalid
     ///
@@ -298,8 +298,8 @@ impl<'a> StrftimeItems<'a> {
     ///
     /// ```
     /// # #[cfg(feature = "alloc")] {
-    /// use chrono::format::{Locale, StrftimeItems};
-    /// use chrono::{FixedOffset, TimeZone};
+    /// use sad_chrono::format::{Locale, StrftimeItems};
+    /// use sad_chrono::{FixedOffset, TimeZone};
     ///
     /// let dt = FixedOffset::east_opt(9 * 60 * 60)
     ///     .unwrap()
@@ -354,8 +354,8 @@ impl<'a> StrftimeItems<'a> {
     /// # Example
     ///
     /// ```
-    /// use chrono::format::{parse, Parsed, StrftimeItems};
-    /// use chrono::NaiveDate;
+    /// use sad_chrono::format::{parse, Parsed, StrftimeItems};
+    /// use sad_chrono::NaiveDate;
     ///
     /// let fmt_items = StrftimeItems::new("%e %b %Y %k.%M").parse()?;
     /// let datetime = NaiveDate::from_ymd_opt(2023, 7, 11).unwrap().and_hms_opt(9, 0, 0).unwrap();
@@ -371,7 +371,7 @@ impl<'a> StrftimeItems<'a> {
     /// parse(&mut parsed, "11 Jul 2023  9.00", fmt_items.as_slice().iter())?;
     /// let parsed_dt = parsed.to_naive_datetime_with_offset(0)?;
     /// assert_eq!(parsed_dt, datetime);
-    /// # Ok::<(), chrono::ParseError>(())
+    /// # Ok::<(), sad_chrono::ParseError>(())
     /// ```
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn parse(self) -> Result<Vec<Item<'a>>, ParseError> {
@@ -398,8 +398,8 @@ impl<'a> StrftimeItems<'a> {
     /// # Example
     ///
     /// ```
-    /// use chrono::format::{Item, ParseError, StrftimeItems};
-    /// use chrono::NaiveDate;
+    /// use sad_chrono::format::{Item, ParseError, StrftimeItems};
+    /// use sad_chrono::NaiveDate;
     ///
     /// fn format_items(date_fmt: &str, time_fmt: &str) -> Result<Vec<Item<'static>>, ParseError> {
     ///     // `fmt_string` is dropped at the end of this function.

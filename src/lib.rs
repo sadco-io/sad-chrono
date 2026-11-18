@@ -1,4 +1,15 @@
-//! # Chrono: Date and Time for Rust
+//! # sad-chrono: Date and Time for Rust
+//!
+//! `sad-chrono` is a maintained fork of [chrono] that keeps its 0.4 API stable and ships security
+//! and robustness fixes. It is maintained by the Sadco Security Team. `sad-chrono 0.4.x` is
+//! API-compatible with `chrono 0.4.x`; to keep existing `chrono::` paths unchanged, rename the
+//! dependency:
+//!
+//! ```toml
+//! chrono = { package = "sad-chrono", version = "0.4.46" }
+//! ```
+//!
+//! [chrono]: https://github.com/chronotope/chrono
 //!
 //! Chrono aims to provide all functionality needed to do correct operations on dates and times in
 //! the [proleptic Gregorian calendar]:
@@ -103,7 +114,7 @@
 //!
 //! ```
 //! # #[cfg(feature = "now")] {
-//! use chrono::prelude::*;
+//! use sad_chrono::prelude::*;
 //!
 //! let utc: DateTime<Utc> = Utc::now(); // e.g. `2014-11-28T12:45:59.324310806Z`
 //! # let _ = utc;
@@ -112,7 +123,7 @@
 //!
 //! ```
 //! # #[cfg(feature = "clock")] {
-//! use chrono::prelude::*;
+//! use sad_chrono::prelude::*;
 //!
 //! let local: DateTime<Local> = Local::now(); // e.g. `2014-11-28T21:45:59.324310806+09:00`
 //! # let _ = local;
@@ -124,8 +135,8 @@
 //! methods.
 //!
 //! ```
-//! use chrono::offset::MappedLocalTime;
-//! use chrono::prelude::*;
+//! use sad_chrono::offset::MappedLocalTime;
+//! use sad_chrono::prelude::*;
 //!
 //! # fn doctest() -> Option<()> {
 //!
@@ -202,8 +213,8 @@
 //! The following illustrates most supported operations to the date and time:
 //!
 //! ```rust
-//! use chrono::prelude::*;
-//! use chrono::TimeDelta;
+//! use sad_chrono::prelude::*;
+//! use sad_chrono::TimeDelta;
 //!
 //! // assume this returned `2014-11-28T21:45:59.324310806+09:00`:
 //! let dt = FixedOffset::east_opt(9 * 3600)
@@ -275,14 +286,14 @@
 //! additional C library. This functionality is under the feature `unstable-locales`:
 //!
 //! ```toml
-//! chrono = { version = "0.4", features = ["unstable-locales"] }
+//! sad-chrono = { version = "0.4.46", features = ["unstable-locales"] }
 //! ```
 //!
 //! The `unstable-locales` feature requires and implies at least the `alloc` feature.
 //!
 //! ```rust
 //! # #[allow(unused_imports)]
-//! use chrono::prelude::*;
+//! use sad_chrono::prelude::*;
 //!
 //! # #[cfg(all(feature = "unstable-locales", feature = "alloc"))]
 //! # fn test() {
@@ -331,7 +342,7 @@
 //! More detailed control over the parsing process is available via [`format`](mod@format) module.
 //!
 //! ```rust
-//! use chrono::prelude::*;
+//! use sad_chrono::prelude::*;
 //!
 //! let dt = Utc.with_ymd_and_hms(2014, 11, 28, 12, 0, 9).unwrap();
 //! let fixed_dt = dt.with_timezone(&FixedOffset::east_opt(9 * 3600).unwrap());
@@ -377,7 +388,7 @@
 //! ```
 //! # #[cfg(feature = "alloc")] {
 //! // We need the trait in scope to use Utc::timestamp().
-//! use chrono::{DateTime, Utc};
+//! use sad_chrono::{DateTime, Utc};
 //!
 //! // Construct a datetime from epoch:
 //! let dt: DateTime<Utc> = DateTime::from_timestamp_secs(1_500_000_000).unwrap();
@@ -422,7 +433,7 @@
 //! Rust first had a `time` module added to `std` in its 0.7 release. It later moved to
 //! `libextra`, and then to a `libtime` library shipped alongside the standard library. In 2014
 //! work on chrono started in order to provide a full-featured date and time library in Rust.
-//! Some improvements from chrono made it into the standard library; notably, `chrono::Duration`
+//! Some improvements from chrono made it into the standard library; notably, `sad_chrono::Duration`
 //! was included as `std::time::Duration` ([rust#15934]) in 2014.
 //!
 //! In preparation of Rust 1.0 at the end of 2014 `libtime` was moved out of the Rust distro and
@@ -500,7 +511,7 @@
 //!
 //! [chrono#1095]: https://github.com/chronotope/chrono/pull/1095
 
-#![doc(html_root_url = "https://docs.rs/chrono/latest/", test(attr(deny(warnings))))]
+#![doc(html_root_url = "https://docs.rs/sad-chrono/latest/", test(attr(deny(warnings))))]
 #![warn(unreachable_pub)]
 #![warn(clippy::tests_outside_test_module)]
 #![cfg_attr(not(any(feature = "std", test)), no_std)]
@@ -520,7 +531,7 @@ pub type Duration = TimeDelta;
 
 use core::fmt;
 
-/// A convenience module appropriate for glob imports (`use chrono::prelude::*;`).
+/// A convenience module appropriate for glob imports (`use sad_chrono::prelude::*;`).
 pub mod prelude {
     #[allow(deprecated)]
     pub use crate::Date;
