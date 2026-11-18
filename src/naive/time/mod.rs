@@ -848,23 +848,28 @@ impl NaiveTime {
     /// # Panics
     ///
     /// Formatting the returned `DelayedFormat` through `Display` (`to_string()`, `format!`)
-    /// panics if `fmt` contains an invalid or unrecognized specifier, because `Display::fmt`
-    /// returns `fmt::Error`.
+    /// panics if formatting fails, because `Display::fmt` returns `fmt::Error`. Formatting fails
+    /// when `fmt` contains:
     ///
-    /// For untrusted format strings, validate first with [`StrftimeItems::new(fmt).parse()`] and
-    /// pass the items to [`NaiveTime::format_with_items`], or use `write!` and handle the error:
+    /// - invalid or unrecognized specifiers;
+    /// - parse-only specifiers such as `%#z`;
+    /// - specifiers for fields the type lacks (time fields on `NaiveDate`, date fields on
+    ///   `NaiveTime`, and timezone specifiers such as `%z`, `%:z`, or `%Z` on naive types).
+    ///
+    /// For untrusted format strings, use `write!` (via [`core::fmt::Write`]) and handle the
+    /// `fmt::Result` error instead of calling `to_string()` or `format!`:
     ///
     /// ```
+    /// use core::fmt::Write;
     /// use sad_chrono::NaiveTime;
-    /// use sad_chrono::format::StrftimeItems;
     ///
     /// let t = NaiveTime::from_hms_opt(23, 56, 4).unwrap();
-    /// assert!(StrftimeItems::new("%Q").parse().is_err());
-    /// let items = StrftimeItems::new("%H:%M:%S").parse().unwrap();
-    /// assert_eq!(t.format_with_items(items.iter()).to_string(), "23:56:04");
+    /// let mut out = String::new();
+    /// assert!(write!(out, "{}", t.format("%Y")).is_err());
+    /// out.clear();
+    /// assert!(write!(out, "{}", t.format("%H:%M:%S")).is_ok());
+    /// assert_eq!(out, "23:56:04");
     /// ```
-    ///
-    /// [`StrftimeItems::new(fmt).parse()`]: crate::format::StrftimeItems::parse
     ///
     /// # Example
     ///
