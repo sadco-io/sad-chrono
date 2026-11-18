@@ -25,7 +25,15 @@ mod inner;
 mod inner;
 
 #[cfg(all(windows, feature = "clock"))]
-#[allow(unreachable_pub)]
+// windows-bindgen 0.100 no longer emits these allows in the generated file itself.
+#[allow(
+    unreachable_pub,
+    non_snake_case,
+    non_upper_case_globals,
+    non_camel_case_types,
+    dead_code,
+    clippy::all
+)]
 mod win_bindings;
 
 #[cfg(all(any(target_os = "android", target_env = "ohos", test), feature = "clock"))]
