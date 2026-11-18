@@ -65,6 +65,9 @@ similar-asserts = { version = "2.0.0" }
 postcard = { version = "1", default-features = false, features = ["alloc"] }
 windows-bindgen = { version = "0.100" }                    # MSRV is 1.95 (dev-dependency only)
 
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+
 [target.'cfg(all(target_family = "wasm", not(any(target_os = "emscripten", target_os = "wasi"))))'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 
