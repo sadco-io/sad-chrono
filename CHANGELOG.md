@@ -1,3 +1,64 @@
+ChangeLog for sad-chrono
+========================
+
+`sad-chrono` is a maintained fork of [chrono](https://github.com/chronotope/chrono).
+Its releases are documented below. Upstream chrono releases from 0.4.20 to
+0.4.45 are documented in the
+[chrono release notes](https://github.com/chronotope/chrono/releases), and
+earlier ones further down this file.
+
+Entries reference the upstream chrono pull request or issue each change came
+from, as `chrono#NNNN`.
+
+## sad-chrono 0.4.46
+
+First release of `sad-chrono`. It is API-compatible with chrono 0.4.45 and
+was forked from chrono's `main` branch at
+[`6adaa52`](https://github.com/chronotope/chrono/commit/6adaa52), so it
+includes every fix merged upstream since 0.4.45 that was never released.
+
+### Security and robustness
+
+* TZif parsing: use checked arithmetic for data block lengths, so a header
+  with huge record counts is rejected as an invalid file instead of
+  overflowing `usize`, which panicked on 32-bit targets (chrono#1812, by
+  n0liu; reported in chrono#1802).
+* `From<SystemTime> for DateTime<Utc>` saturates to `DateTime::MIN_UTC` /
+  `DateTime::MAX_UTC` for values outside the range of `DateTime` instead of
+  panicking (chrono#1811, by n0liu; reported in chrono#1802). `sad-chrono`
+  additionally fixes an overflow panic, in builds with overflow checks, at
+  the earliest `SystemTime` on platforms with an `i64` `tv_sec`.
+* TZif local time lookup: avoid `i64` overflow for transition times near
+  `i64::MIN` / `i64::MAX` (chrono#1796, by nvxbug).
+* Android and OpenHarmony tzdata: skip a partial trailing index entry instead
+  of slicing out of bounds (chrono#1797, by nvxbug).
+* `NaiveDate::from_isoywd_opt` returns `None` for `i32::MIN` / `i32::MAX`
+  years instead of panicking (chrono#1810, by n0liu).
+
+### Fixes
+
+* Offsets of ±23:59:30 or more formatted at minute precision (including by
+  `to_rfc3339`) now produce `±23:59` instead of the invalid `±24:00`, which
+  failed to parse back (chrono#1798, by nvxbug).
+* Reversing the `NaiveDate` day and week iterators (for example
+  `iter_days().take(n).rev()`) no longer yields dates far outside the
+  iterated range (chrono#1809, by n0liu).
+* TZif files with time zone designations longer than 7 characters or
+  containing `_` are accepted. Previously, a valid `/etc/localtime` using one
+  made `Local` silently fall back to UTC (chrono#1795, by Dave Sims).
+* Use `target_family = "wasm"` instead of `target_arch = "wasm32"` for the
+  wasm-bindgen integration (chrono#1803, by Tomáš Procházka).
+
+### Packaging and internal
+
+* Published as `sad-chrono`, with library name `sad_chrono`. To keep
+  existing `chrono::` paths, depend on it as
+  `chrono = { package = "sad-chrono", version = "0.4.46" }`.
+* Fix doctests that failed to compile on Rust 1.99 and later because
+  `core::i32::MAX` is deprecated (chrono#1825, by Benjamin A. Beasley).
+* Clippy 1.97 cleanups and CI maintenance (chrono#1794, chrono#1805); drop
+  the Codecov workflow.
+
 ChangeLog for Chrono
 ====================
 
