@@ -1918,24 +1918,32 @@ impl str::FromStr for DateTime<Local> {
 
 #[cfg(feature = "std")]
 impl From<SystemTime> for DateTime<Utc> {
+    /// Converts a `SystemTime` into a `DateTime<Utc>`.
+    ///
+    /// A `SystemTime` can be outside the range of `DateTime`. Because this conversion is
+    /// infallible, such values saturate to [`DateTime::MIN_UTC`] or [`DateTime::MAX_UTC`]
+    /// instead of panicking.
     fn from(t: SystemTime) -> DateTime<Utc> {
-        let (sec, nsec) = match t.duration_since(UNIX_EPOCH) {
-            Ok(dur) => (dur.as_secs() as i64, dur.subsec_nanos()),
-            Err(e) => {
-                // unlikely but should be handled
-                let dur = e.duration();
-                let (sec, nsec) = (dur.as_secs() as i64, dur.subsec_nanos());
-                if nsec == 0 { (-sec, 0) } else { (-sec - 1, 1_000_000_000 - nsec) }
-            }
+        let (dur, before_epoch) = match t.duration_since(UNIX_EPOCH) {
+            Ok(dur) => (dur, false),
+            Err(e) => (e.duration(), true),
         };
-        // This conversion is infallible, but the `SystemTime` may be outside the
-        // range of `DateTime`. Saturate to the representable bounds instead of
-        // panicking on `.unwrap()`.
-        match Utc.timestamp_opt(sec, nsec).single() {
-            Some(dt) => dt,
-            None if sec < 0 => DateTime::<Utc>::MIN_UTC,
-            None => DateTime::<Utc>::MAX_UTC,
-        }
+        let saturated =
+            if before_epoch { DateTime::<Utc>::MIN_UTC } else { DateTime::<Utc>::MAX_UTC };
+        // On platforms with an `i64` `tv_sec` the earliest `SystemTime` is `2^63` seconds before
+        // the epoch, which does not fit in an `i64`. That is far outside the range of `DateTime`.
+        let sec = match i64::try_from(dur.as_secs()) {
+            Ok(sec) => sec,
+            Err(_) => return saturated,
+        };
+        let nsec = dur.subsec_nanos();
+        // `0 <= sec <= i64::MAX`, so neither negation below can overflow.
+        let (sec, nsec) = match (before_epoch, nsec) {
+            (false, _) => (sec, nsec),
+            (true, 0) => (-sec, 0),
+            (true, _) => (-sec - 1, 1_000_000_000 - nsec),
+        };
+        Utc.timestamp_opt(sec, nsec).single().unwrap_or(saturated)
     }
 }
 

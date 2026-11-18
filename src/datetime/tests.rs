@@ -1423,6 +1423,18 @@ fn test_from_system_time() {
     let out_of_range = Duration::from_secs(10_000_000_000_000);
     assert_eq!(DateTime::<Utc>::from(UNIX_EPOCH + out_of_range), DateTime::<Utc>::MAX_UTC);
     assert_eq!(DateTime::<Utc>::from(UNIX_EPOCH - out_of_range), DateTime::<Utc>::MIN_UTC);
+    let out_of_range_subsec = Duration::new(10_000_000_000_000, 1);
+    assert_eq!(DateTime::<Utc>::from(UNIX_EPOCH - out_of_range_subsec), DateTime::<Utc>::MIN_UTC);
+
+    // The extreme `SystemTime`s, where the platform can represent them. The earliest one on
+    // platforms with an `i64` `tv_sec` is `2^63` seconds before the epoch, whose seconds do not
+    // fit in an `i64`.
+    if let Some(latest) = UNIX_EPOCH.checked_add(Duration::from_secs(i64::MAX as u64)) {
+        assert_eq!(DateTime::<Utc>::from(latest), DateTime::<Utc>::MAX_UTC);
+    }
+    if let Some(earliest) = UNIX_EPOCH.checked_sub(Duration::from_secs(1 << 63)) {
+        assert_eq!(DateTime::<Utc>::from(earliest), DateTime::<Utc>::MIN_UTC);
+    }
 
     // DateTime<Utc> -> SystemTime
     assert_eq!(SystemTime::from(epoch), UNIX_EPOCH);
