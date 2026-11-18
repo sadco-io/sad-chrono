@@ -9,6 +9,12 @@ use super::rule::{AlternateTime, TransitionRule};
 use super::{DAYS_PER_WEEK, Error, SECONDS_PER_DAY, parser};
 use crate::NaiveDateTime;
 
+/// Maximum TZif file size we are willing to read (1 MiB; real TZif files are < 10 KiB).
+const MAX_TZIF_LEN: u64 = 1 << 20;
+
+/// Maximum allowed UTC offset magnitude in seconds (`FixedOffset` limit: ±23:59:59).
+const MAX_UT_OFFSET: i32 = SECONDS_PER_DAY as i32 - 1;
+
 /// Time zone
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct TimeZone {
@@ -41,7 +47,7 @@ impl TimeZone {
         }
 
         if tz_string == "localtime" {
-            return Self::from_tz_data(&fs::read("/etc/localtime")?);
+            return Self::from_tz_file("/etc/localtime");
         }
 
         // attributes are not allowed on if blocks in Rust 1.38
@@ -87,10 +93,26 @@ impl TimeZone {
         Ok(new)
     }
 
+    /// Construct a time zone from the path of a time zone file
+    pub(crate) fn from_tz_file(path: impl AsRef<Path>) -> Result<Self, Error> {
+        Self::from_file(&mut open_regular_tz_file(path)?)
+    }
+
     /// Construct a time zone from the contents of a time zone file
     fn from_file(file: &mut File) -> Result<Self, Error> {
+        if !file.metadata()?.is_file() {
+            return Err(Error::InvalidTzFile("TZif file is not a regular file"));
+        }
+        Self::from_reader(file)
+    }
+
+    /// Construct a time zone by reading at most `MAX_TZIF_LEN` bytes from a reader
+    fn from_reader<R: Read>(reader: R) -> Result<Self, Error> {
         let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
+        reader.take(MAX_TZIF_LEN + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_TZIF_LEN {
+            return Err(Error::InvalidTzFile("TZif file exceeds maximum size"));
+        }
         Self::from_tz_data(&bytes)
     }
 
@@ -570,9 +592,15 @@ pub(crate) struct LocalTimeType {
 }
 
 impl LocalTimeType {
+    /// Returns `true` if `ut_offset` fits in `FixedOffset` (`-86399..=86399`).
+    #[allow(clippy::manual_range_contains)] // `RangeInclusive::contains` is not `const` at MSRV 1.62
+    const fn is_valid_ut_offset(ut_offset: i32) -> bool {
+        ut_offset >= -MAX_UT_OFFSET && ut_offset <= MAX_UT_OFFSET
+    }
+
     /// Construct a local time type
     pub(super) fn new(ut_offset: i32, is_dst: bool, name: Option<&[u8]>) -> Result<Self, Error> {
-        if ut_offset == i32::MIN {
+        if !Self::is_valid_ut_offset(ut_offset) {
             return Err(Error::LocalTimeType("invalid UTC offset"));
         }
 
@@ -586,7 +614,7 @@ impl LocalTimeType {
 
     /// Construct a local time type with the specified UTC offset in seconds
     pub(super) const fn with_offset(ut_offset: i32) -> Result<Self, Error> {
-        if ut_offset == i32::MIN {
+        if !Self::is_valid_ut_offset(ut_offset) {
             return Err(Error::LocalTimeType("invalid UTC offset"));
         }
 
@@ -606,21 +634,30 @@ impl LocalTimeType {
     pub(super) const UTC: LocalTimeType = Self { ut_offset: 0, is_dst: false, name: None };
 }
 
+fn open_regular_tz_file(path: impl AsRef<Path>) -> Result<File, Error> {
+    let path = path.as_ref();
+    // Check metadata before opening so a FIFO does not block in `File::open`.
+    if !fs::metadata(path)?.is_file() {
+        return Err(Error::InvalidTzFile("TZif path is not a regular file"));
+    }
+    Ok(File::open(path)?)
+}
+
 /// Open the TZif file corresponding to a TZ string
 fn find_tz_file(path: impl AsRef<Path>) -> Result<File, Error> {
     // Don't check system timezone directories on non-UNIX platforms
     #[cfg(not(unix))]
-    return Ok(File::open(path)?);
+    return open_regular_tz_file(path);
 
     #[cfg(unix)]
     {
         let path = path.as_ref();
         if path.is_absolute() {
-            return Ok(File::open(path)?);
+            return open_regular_tz_file(path);
         }
 
         for folder in &ZONE_INFO_DIRECTORIES {
-            if let Ok(file) = File::open(PathBuf::from(folder).join(path)) {
+            if let Ok(file) = open_regular_tz_file(PathBuf::from(folder).join(path)) {
                 return Ok(file);
             }
         }
@@ -893,6 +930,10 @@ mod tests {
         }
 
         assert!(TimeZone::from_posix_tz("EST5EDT,0/0,J365/25").is_err());
+        assert!(matches!(
+            TimeZone::from_posix_tz("AAA-23BBB,J1,J365"),
+            Err(Error::LocalTimeType(_))
+        ));
         assert_eq!(TimeZone::from_posix_tz("").unwrap().find_local_time_type(0)?.offset(), 0);
 
         Ok(())
@@ -1002,5 +1043,60 @@ mod tests {
         assert!(near_min.find_local_time_type_from_local(local).is_ok());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_ut_offset_bounds() {
+        fn tzif_v1_with_offset(ut_offset: i32) -> [u8; 54] {
+            let mut bytes = [0u8; 54];
+            bytes[..4].copy_from_slice(b"TZif");
+            bytes[36..40].copy_from_slice(&1u32.to_be_bytes()); // type_count = 1
+            bytes[40..44].copy_from_slice(&4u32.to_be_bytes()); // char_count = 4
+            bytes[44..48].copy_from_slice(&ut_offset.to_be_bytes());
+            bytes[50..54].copy_from_slice(b"FOO\0");
+            bytes
+        }
+
+        for invalid in [86400, -86400, i32::MAX, i32::MIN] {
+            assert!(
+                matches!(
+                    TimeZone::from_tz_data(&tzif_v1_with_offset(invalid)),
+                    Err(Error::LocalTimeType(_))
+                ),
+                "from_tz_data should reject {invalid}"
+            );
+            assert!(
+                matches!(LocalTimeType::with_offset(invalid), Err(Error::LocalTimeType(_))),
+                "with_offset should reject {invalid}"
+            );
+        }
+
+        for valid in [86399, -86399] {
+            let tz = TimeZone::from_tz_data(&tzif_v1_with_offset(valid)).unwrap();
+            assert_eq!(tz.find_local_time_type(0).unwrap().offset(), valid);
+            assert_eq!(LocalTimeType::with_offset(valid).unwrap().offset(), valid);
+        }
+    }
+
+    #[test]
+    fn test_from_reader_size_limit() {
+        assert!(matches!(
+            TimeZone::from_reader(std::io::repeat(0u8)),
+            Err(Error::InvalidTzFile(_))
+        ));
+        let over = vec![0u8; super::MAX_TZIF_LEN as usize + 1];
+        assert!(matches!(
+            TimeZone::from_reader(std::io::Cursor::new(over)),
+            Err(Error::InvalidTzFile(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_non_regular_tz_file() {
+        let mut dev_zero = std::fs::File::open("/dev/zero").unwrap();
+        assert!(matches!(TimeZone::from_file(&mut dev_zero), Err(Error::InvalidTzFile(_))));
+        assert!(matches!(TimeZone::from_posix_tz(":/dev/zero"), Err(Error::InvalidTzFile(_))));
+        assert!(TimeZone::from_posix_tz("/dev/zero").is_err());
     }
 }
