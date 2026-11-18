@@ -877,6 +877,27 @@ impl NaiveDateTime {
     /// Rather, converting or formatting the `DelayedFormat` fails.
     /// You are recommended to immediately use `DelayedFormat` for this reason.
     ///
+    /// # Panics
+    ///
+    /// Formatting the returned `DelayedFormat` through `Display` (`to_string()`, `format!`)
+    /// panics if `fmt` contains an invalid or unrecognized specifier, because `Display::fmt`
+    /// returns `fmt::Error`.
+    ///
+    /// For untrusted format strings, validate first with [`StrftimeItems::new(fmt).parse()`] and
+    /// pass the items to [`NaiveDateTime::format_with_items`], or use `write!` and handle the error:
+    ///
+    /// ```
+    /// use sad_chrono::NaiveDate;
+    /// use sad_chrono::format::StrftimeItems;
+    ///
+    /// let dt = NaiveDate::from_ymd_opt(2015, 9, 5).unwrap().and_hms_opt(23, 56, 4).unwrap();
+    /// assert!(StrftimeItems::new("%Q").parse().is_err());
+    /// let items = StrftimeItems::new("%Y-%m-%d %H:%M:%S").parse().unwrap();
+    /// assert_eq!(dt.format_with_items(items.iter()).to_string(), "2015-09-05 23:56:04");
+    /// ```
+    ///
+    /// [`StrftimeItems::new(fmt).parse()`]: crate::format::StrftimeItems::parse
+    ///
     /// # Example
     ///
     /// ```

@@ -1165,6 +1165,27 @@ where
     ///
     /// See the [`crate::format::strftime`] module for the supported escape sequences.
     ///
+    /// # Panics
+    ///
+    /// Formatting the returned `DelayedFormat` through `Display` (`to_string()`, `format!`)
+    /// panics if `fmt` contains an invalid or unrecognized specifier, because `Display::fmt`
+    /// returns `fmt::Error`.
+    ///
+    /// For untrusted format strings, validate first with [`StrftimeItems::new(fmt).parse()`] and
+    /// pass the items to [`DateTime::format_with_items`], or use `write!` and handle the error:
+    ///
+    /// ```
+    /// use sad_chrono::format::StrftimeItems;
+    /// use sad_chrono::prelude::*;
+    ///
+    /// let dt = Utc.with_ymd_and_hms(2017, 4, 2, 12, 50, 32).unwrap();
+    /// assert!(StrftimeItems::new("%Q").parse().is_err());
+    /// let items = StrftimeItems::new("%d/%m/%Y %H:%M").parse().unwrap();
+    /// assert_eq!(dt.format_with_items(items.iter()).to_string(), "02/04/2017 12:50");
+    /// ```
+    ///
+    /// [`StrftimeItems::new(fmt).parse()`]: crate::format::StrftimeItems::parse
+    ///
     /// # Example
     /// ```rust
     /// use sad_chrono::prelude::*;
@@ -1961,23 +1982,63 @@ impl From<SystemTime> for DateTime<Local> {
 }
 
 #[cfg(feature = "std")]
+fn saturate_system_time(before_epoch: bool, upper_secs: u64) -> SystemTime {
+    let try_offset = |dur| {
+        if before_epoch { UNIX_EPOCH.checked_sub(dur) } else { UNIX_EPOCH.checked_add(dur) }
+    };
+    let mut lo = 0u64;
+    let mut hi = upper_secs;
+    while lo < hi {
+        let mid = lo + (hi - lo).div_ceil(2);
+        if try_offset(Duration::from_secs(mid)).is_some() {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    let mut nlo = 0u32;
+    let mut nhi = 999_999_999u32;
+    while nlo < nhi {
+        let mid = nlo + (nhi - nlo).div_ceil(2);
+        if try_offset(Duration::new(lo, mid)).is_some() {
+            nlo = mid;
+        } else {
+            nhi = mid - 1;
+        }
+    }
+    try_offset(Duration::new(lo, nlo)).unwrap_or(UNIX_EPOCH)
+}
+
+#[cfg(feature = "std")]
 impl<Tz: TimeZone> From<DateTime<Tz>> for SystemTime {
     /// Converts a `DateTime<Tz>` into a `SystemTime`.
     ///
-    /// # Panics
-    ///
-    /// Panics if the `DateTime` cannot be represented as a `SystemTime` on the target
-    /// platform, such as dates outside roughly 1601-01-01 to 30828-09-14 on Windows, or
-    /// dates before 1970-01-01 (`UNIX_EPOCH`) on `wasm32-unknown-unknown`.
+    /// If the `DateTime` is outside the representable range of `SystemTime` on the target
+    /// platform (such as dates outside roughly 1601-01-01 to 30828-09-14 on Windows, or
+    /// dates before 1970-01-01 on `wasm32-unknown-unknown`), the result saturates to the
+    /// nearest representable `SystemTime` instead of panicking.
     fn from(dt: DateTime<Tz>) -> SystemTime {
-        let sec = dt.timestamp();
-        let nsec = dt.timestamp_subsec_nanos();
-        if sec < 0 {
-            // unlikely but should be handled
-            UNIX_EPOCH - Duration::new(-sec as u64, 0) + Duration::new(0, nsec)
-        } else {
-            UNIX_EPOCH + Duration::new(sec as u64, nsec)
+        let mut sec = dt.timestamp();
+        let mut nsec = dt.timestamp_subsec_nanos();
+        // Normalize leap seconds (1_000_000_000 <= nsec < 2_000_000_000) before inverting
+        // pre-epoch offsets so `1_000_000_000 - nsec` cannot underflow.
+        if nsec >= 1_000_000_000 {
+            sec += 1;
+            nsec -= 1_000_000_000;
         }
+        let (before_epoch, dur) = if sec < 0 {
+            let dur = if nsec == 0 {
+                Duration::new(sec.unsigned_abs(), 0)
+            } else {
+                Duration::new(sec.unsigned_abs() - 1, 1_000_000_000 - nsec)
+            };
+            (true, dur)
+        } else {
+            (false, Duration::new(sec as u64, nsec))
+        };
+        let result =
+            if before_epoch { UNIX_EPOCH.checked_sub(dur) } else { UNIX_EPOCH.checked_add(dur) };
+        result.unwrap_or_else(|| saturate_system_time(before_epoch, dur.as_secs()))
     }
 }
 
