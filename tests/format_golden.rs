@@ -121,6 +121,11 @@ mod serde_golden {
     const VEC_TIME_DELTA_MAX: (&str, &str) =
         (r#"[9223372036854775,807000000]"#, "eecf9adef4a6e22080dfce8106");
     const VEC_TS_MILLISECONDS_PRE_EPOCH: (&str, &str) = (r#"{"v":-500}"#, "e707");
+    const VEC_TS_SECONDS_PRE_EPOCH_INEXACT: (&str, &str) = (r#"{"v":-1}"#, "01");
+    const VEC_TS_MILLISECONDS_PRE_EPOCH_INEXACT: (&str, &str) = (r#"{"v":-500}"#, "e707");
+    const VEC_TS_MICROSECONDS_PRE_EPOCH_INEXACT: (&str, &str) = (r#"{"v":-499500}"#, "d7fc3c");
+    const VEC_TS_NANOSECONDS_PRE_EPOCH_INEXACT: (&str, &str) =
+        (r#"{"v":-499499500}"#, "d787aedc03");
     const VEC_TS_MILLISECONDS_OPTION_SOME: (&str, &str) =
         (r#"{"v":1467947107098}"#, "01b48cba87b955");
     const VEC_TS_MILLISECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
@@ -351,6 +356,36 @@ mod serde_golden {
             VEC_TS_MILLISECONDS_PRE_EPOCH.0,
             VEC_TS_MILLISECONDS_PRE_EPOCH.1,
             &TsMs { v: pre_epoch },
+        );
+
+        let pre_epoch_inexact = DateTime::<Utc>::from_timestamp(-1, 500_500_500).unwrap();
+        check_golden(
+            "ts_seconds_pre_epoch_inexact",
+            &TsS { v: pre_epoch_inexact },
+            VEC_TS_SECONDS_PRE_EPOCH_INEXACT.0,
+            VEC_TS_SECONDS_PRE_EPOCH_INEXACT.1,
+            &TsS { v: DateTime::<Utc>::from_timestamp(-1, 0).unwrap() },
+        );
+        check_golden(
+            "ts_milliseconds_pre_epoch_inexact",
+            &TsMs { v: pre_epoch_inexact },
+            VEC_TS_MILLISECONDS_PRE_EPOCH_INEXACT.0,
+            VEC_TS_MILLISECONDS_PRE_EPOCH_INEXACT.1,
+            &TsMs { v: DateTime::<Utc>::from_timestamp(-1, 500_000_000).unwrap() },
+        );
+        check_golden(
+            "ts_microseconds_pre_epoch_inexact",
+            &TsUs { v: pre_epoch_inexact },
+            VEC_TS_MICROSECONDS_PRE_EPOCH_INEXACT.0,
+            VEC_TS_MICROSECONDS_PRE_EPOCH_INEXACT.1,
+            &TsUs { v: DateTime::<Utc>::from_timestamp(-1, 500_500_000).unwrap() },
+        );
+        check_golden(
+            "ts_nanoseconds_pre_epoch_inexact",
+            &TsNs { v: pre_epoch_inexact },
+            VEC_TS_NANOSECONDS_PRE_EPOCH_INEXACT.0,
+            VEC_TS_NANOSECONDS_PRE_EPOCH_INEXACT.1,
+            &TsNs { v: pre_epoch_inexact },
         );
 
         check_golden(

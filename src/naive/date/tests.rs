@@ -992,23 +992,90 @@ fn test_rkyv_fail_closed_without_validation_feature() {
         util::Align,
     };
 
-    let mut output = Align([MaybeUninit::<u8>::uninit(); 16]);
-    let mut alloc = [MaybeUninit::<u8>::uninit(); 16];
-    let valid = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
-    let written = to_bytes_in_with_alloc::<_, _, rkyv::rancor::Error>(
-        &valid,
-        Buffer::from(&mut *output),
-        SubAllocator::new(&mut alloc),
-    )
-    .unwrap();
-    assert_eq!(from_bytes::<NaiveDate, rkyv::rancor::Error>(&written).unwrap(), valid);
+    use crate::{DateTime, FixedOffset, NaiveDateTime, NaiveTime, TimeDelta};
 
-    let mut tampered = Align([0u8; 4]);
+    macro_rules! serialize_stack {
+        ($val:expr, $buf:ident) => {{
+            let mut output = Align([MaybeUninit::<u8>::uninit(); 32]);
+            let mut alloc = [MaybeUninit::<u8>::uninit(); 32];
+            let written = to_bytes_in_with_alloc::<_, _, rkyv::rancor::Error>(
+                $val,
+                Buffer::from(&mut *output),
+                SubAllocator::new(&mut alloc),
+            )
+            .unwrap();
+            let len = written.len();
+            $buf[..len].copy_from_slice(&written);
+            len
+        }};
+    }
+
+    // NaiveDate: round-trip valid, reject ordinal 511
+    let valid_date = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
+    let mut buf = Align([0u8; 32]);
+    let len = serialize_stack!(&valid_date, buf);
+    assert_eq!(from_bytes::<NaiveDate, rkyv::rancor::Error>(&buf[..len]).unwrap(), valid_date);
     let yof_offset = core::mem::offset_of!(super::ArchivedNaiveDate, yof);
     let flags_2024 = YearFlags::from_year(2024).0 as i32;
     let bad_yof = (2024 << 13) | (511 << 4) | flags_2024;
-    tampered[yof_offset..yof_offset + 4].copy_from_slice(&bad_yof.to_le_bytes());
-    assert!(from_bytes::<NaiveDate, rkyv::rancor::Error>(&tampered[..]).is_err());
+    buf[yof_offset..yof_offset + 4].copy_from_slice(&bad_yof.to_le_bytes());
+    assert!(from_bytes::<NaiveDate, rkyv::rancor::Error>(&buf[..len]).is_err());
+
+    // NaiveTime: round-trip valid, reject secs = 86_400
+    let valid_time = NaiveTime::from_hms_opt(0, 0, 1).unwrap();
+    let mut buf = Align([0u8; 32]);
+    let len = serialize_stack!(&valid_time, buf);
+    assert_eq!(from_bytes::<NaiveTime, rkyv::rancor::Error>(&buf[..len]).unwrap(), valid_time);
+    assert_eq!(&buf[0..4], &1u32.to_le_bytes());
+    buf[0..4].copy_from_slice(&86_400u32.to_le_bytes());
+    assert!(from_bytes::<NaiveTime, rkyv::rancor::Error>(&buf[..len]).is_err());
+
+    // FixedOffset: round-trip valid, reject 86_400
+    let valid_offset = FixedOffset::east_opt(3600).unwrap();
+    let mut buf = Align([0u8; 32]);
+    let len = serialize_stack!(&valid_offset, buf);
+    assert_eq!(from_bytes::<FixedOffset, rkyv::rancor::Error>(&buf[..len]).unwrap(), valid_offset);
+    assert_eq!(&buf[0..4], &3600i32.to_le_bytes());
+    buf[0..4].copy_from_slice(&86_400i32.to_le_bytes());
+    assert!(from_bytes::<FixedOffset, rkyv::rancor::Error>(&buf[..len]).is_err());
+
+    // TimeDelta: round-trip valid, reject nanos = -1
+    let valid_delta = TimeDelta::new(0, 42).unwrap();
+    let mut buf = Align([0u8; 32]);
+    let len = serialize_stack!(&valid_delta, buf);
+    assert_eq!(from_bytes::<TimeDelta, rkyv::rancor::Error>(&buf[..len]).unwrap(), valid_delta);
+    assert_eq!(&buf[8..12], &42i32.to_le_bytes());
+    buf[8..12].copy_from_slice(&(-1i32).to_le_bytes());
+    assert!(from_bytes::<TimeDelta, rkyv::rancor::Error>(&buf[..len]).is_err());
+
+    // IsoWeek: round-trip valid, reject 2025-W53
+    let valid_week = NaiveDate::from_ymd_opt(2020, 12, 31).unwrap().iso_week();
+    let mut buf = Align([0u8; 32]);
+    let len = serialize_stack!(&valid_week, buf);
+    assert_eq!(from_bytes::<crate::IsoWeek, rkyv::rancor::Error>(&buf[..len]).unwrap(), valid_week);
+    let expected_2020_w53 = (2020 << 10) | (53 << 4) | (YearFlags::from_year(2020).0 as i32);
+    assert_eq!(&buf[0..4], &expected_2020_w53.to_le_bytes());
+    let bad_2025_w53 = (2025 << 10) | (53 << 4) | (YearFlags::from_year(2025).0 as i32);
+    buf[0..4].copy_from_slice(&bad_2025_w53.to_le_bytes());
+    assert!(from_bytes::<crate::IsoWeek, rkyv::rancor::Error>(&buf[..len]).is_err());
+
+    // DateTime<FixedOffset>: round-trip valid, reject utc = NaiveDateTime::MAX with +86_399
+    let east_max = FixedOffset::east_opt(86_399).unwrap();
+    let valid_dt = DateTime::<FixedOffset>::from_naive_utc_and_offset(
+        valid_date.and_time(valid_time),
+        east_max,
+    );
+    let mut buf = Align([0u8; 32]);
+    let len = serialize_stack!(&valid_dt, buf);
+    assert_eq!(
+        from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&buf[..len]).unwrap(),
+        valid_dt
+    );
+
+    let oob_dt = DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MAX, east_max);
+    let mut buf = Align([0u8; 32]);
+    let len = serialize_stack!(&oob_dt, buf);
+    assert!(from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&buf[..len]).is_err());
 }
 
 //   MAX_YEAR-12-31 minus 0000-01-01
