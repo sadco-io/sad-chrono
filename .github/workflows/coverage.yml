@@ -22,10 +22,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      # nightly is required for --doctests, see cargo-llvm-cov#2
+      # nightly is required for --doctests, see cargo-llvm-cov#2. rustfmt is needed by
+      # tests/win_bindings.rs (windows-bindgen formats its output with it).
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          components: llvm-tools-preview
+          components: llvm-tools-preview, rustfmt
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov@0.9.1
