@@ -9,6 +9,9 @@ on:
     branches: [main, 0.5.x]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -49,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-deadlinks
+      - run: cargo install --locked cargo-deadlinks
       - run: cargo deadlinks -- ${{ env.ALL_NON_EXCLUSIVE_FEATURES }}
       - run: cargo doc ${{ env.ALL_NON_EXCLUSIVE_FEATURES }} --no-deps
         env:
@@ -64,3 +67,40 @@ jobs:
       - uses: citation-file-format/cffconvert-github-action@2.0.0
         with:
           args: --validate
+
+  semver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks@0.51.0
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          git clone --depth 1 --branch v0.4.45 https://github.com/chronotope/chrono "$RUNNER_TEMP/chrono-0.4.45"
+          python3 -c '
+          import os
+          from pathlib import Path
+          p = Path(os.environ["RUNNER_TEMP"]) / "chrono-0.4.45" / "Cargo.toml"
+          text = p.read_text()
+          text = text.replace("name = \"chrono\"\n", "name = \"sad-chrono\"\n", 1)
+          text = text.replace("[lib]\nname = \"chrono\"\n", "")
+          p.write_text(text)
+          '
+          cargo semver-checks check-release --baseline-root "$RUNNER_TEMP/chrono-0.4.45" --default-features
+          cargo semver-checks check-release --baseline-root "$RUNNER_TEMP/chrono-0.4.45" \
+            --only-explicit-features --features default,unstable-locales,rkyv-64,rkyv-validation,serde,arbitrary
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          files=$(cargo package --list)
+          for required in NOTICE SECURITY.md LICENSE.txt README.md src/lib.rs; do
+            echo "$files" | grep -qx "$required" || { echo "missing from package: $required"; exit 1; }
+          done
+      - run: cargo publish --dry-run

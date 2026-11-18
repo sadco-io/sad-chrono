@@ -9,6 +9,9 @@ on:
     branches: [main, 0.5.x]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   timezones:
     strategy:
@@ -166,7 +169,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: cargo install cross
+      - run: cargo install --locked cross
       - uses: Swatinem/rust-cache@v2
       - run: cross check --target ${{ matrix.target }}
 
@@ -177,7 +180,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - run: cargo install cross
+      - run: cargo install --locked cross
       - uses: Swatinem/rust-cache@v2
       - run: cross test --lib ${{ env.ALL_NON_EXCLUSIVE_FEATURES }} --target i686-unknown-linux-gnu --color=always
       - run: cross test --doc ${{ env.ALL_NON_EXCLUSIVE_FEATURES }} --target i686-unknown-linux-gnu --color=always
