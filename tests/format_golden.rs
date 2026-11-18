@@ -1,8 +1,8 @@
 #[cfg(feature = "serde")]
 mod serde_golden {
     use sad_chrono::{
-        DateTime, FixedOffset, Month, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc,
-        Weekday,
+        DateTime, FixedOffset, Month, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone,
+        Timelike, Utc, Weekday,
     };
     use serde_derive::{Deserialize, Serialize};
 
@@ -21,6 +21,13 @@ mod serde_golden {
     with_mod!(TsUs, DateTime<Utc>, "sad_chrono::serde::ts_microseconds");
     with_mod!(TsNs, DateTime<Utc>, "sad_chrono::serde::ts_nanoseconds");
     with_mod!(TsSOpt, Option<DateTime<Utc>>, "sad_chrono::serde::ts_seconds_option");
+    with_mod!(TsMsOpt, Option<DateTime<Utc>>, "sad_chrono::serde::ts_milliseconds_option");
+    with_mod!(TsUsOpt, Option<DateTime<Utc>>, "sad_chrono::serde::ts_microseconds_option");
+    with_mod!(TsNsOpt, Option<DateTime<Utc>>, "sad_chrono::serde::ts_nanoseconds_option");
+    with_mod!(NTsSOpt, Option<NaiveDateTime>, "sad_chrono::naive::serde::ts_seconds_option");
+    with_mod!(NTsMsOpt, Option<NaiveDateTime>, "sad_chrono::naive::serde::ts_milliseconds_option");
+    with_mod!(NTsUsOpt, Option<NaiveDateTime>, "sad_chrono::naive::serde::ts_microseconds_option");
+    with_mod!(NTsNsOpt, Option<NaiveDateTime>, "sad_chrono::naive::serde::ts_nanoseconds_option");
     with_mod!(NTsS, NaiveDateTime, "sad_chrono::naive::serde::ts_seconds");
     with_mod!(NTsMs, NaiveDateTime, "sad_chrono::naive::serde::ts_milliseconds");
     with_mod!(NTsUs, NaiveDateTime, "sad_chrono::naive::serde::ts_microseconds");
@@ -107,6 +114,33 @@ mod serde_golden {
     const VEC_TS_NANOSECONDS: (&str, &str) = (r#"{"v":1467947107098765432}"#, "f0a1f9bab98799df28");
     const VEC_TS_SECONDS_OPTION_SOME: (&str, &str) = (r#"{"v":1467947107}"#, "01c6e1f8f70a");
     const VEC_TS_SECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
+    const VEC_TIME_DELTA_POS: (&str, &str) = (r#"[123456,789012345]"#, "80890ff2fdbaf005");
+    const VEC_TIME_DELTA_NEG: (&str, &str) = (r#"[-42,500000000]"#, "538094ebdc03");
+    const VEC_TIME_DELTA_MIN: (&str, &str) =
+        (r#"[-9223372036854776,193000000]"#, "efcf9adef4a6e22080c987b801");
+    const VEC_TIME_DELTA_MAX: (&str, &str) =
+        (r#"[9223372036854775,807000000]"#, "eecf9adef4a6e22080dfce8106");
+    const VEC_TS_MILLISECONDS_PRE_EPOCH: (&str, &str) = (r#"{"v":-500}"#, "e707");
+    const VEC_TS_MILLISECONDS_OPTION_SOME: (&str, &str) =
+        (r#"{"v":1467947107098}"#, "01b48cba87b955");
+    const VEC_TS_MILLISECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
+    const VEC_TS_MICROSECONDS_OPTION_SOME: (&str, &str) =
+        (r#"{"v":1467947107098765}"#, "019a82f19de2c59b05");
+    const VEC_TS_MICROSECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
+    const VEC_TS_NANOSECONDS_OPTION_SOME: (&str, &str) =
+        (r#"{"v":1467947107098765432}"#, "01f0a1f9bab98799df28");
+    const VEC_TS_NANOSECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
+    const VEC_NAIVE_TS_SECONDS_OPTION_SOME: (&str, &str) = (r#"{"v":1467947107}"#, "01c6e1f8f70a");
+    const VEC_NAIVE_TS_SECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
+    const VEC_NAIVE_TS_MILLISECONDS_OPTION_SOME: (&str, &str) =
+        (r#"{"v":1467947107098}"#, "01b48cba87b955");
+    const VEC_NAIVE_TS_MILLISECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
+    const VEC_NAIVE_TS_MICROSECONDS_OPTION_SOME: (&str, &str) =
+        (r#"{"v":1467947107098765}"#, "019a82f19de2c59b05");
+    const VEC_NAIVE_TS_MICROSECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
+    const VEC_NAIVE_TS_NANOSECONDS_OPTION_SOME: (&str, &str) =
+        (r#"{"v":1467947107098765432}"#, "01f0a1f9bab98799df28");
+    const VEC_NAIVE_TS_NANOSECONDS_OPTION_NONE: (&str, &str) = (r#"{"v":null}"#, "00");
     const VEC_NAIVE_TS_SECONDS: (&str, &str) = (r#"{"v":1467947107}"#, "c6e1f8f70a");
     const VEC_NAIVE_TS_MILLISECONDS: (&str, &str) = (r#"{"v":1467947107098}"#, "b48cba87b955");
     const VEC_NAIVE_TS_MICROSECONDS: (&str, &str) =
@@ -278,13 +312,153 @@ mod serde_golden {
             VEC_NAIVE_TS_NANOSECONDS.1,
             &NTsNs { v: ndt },
         );
+
+        let delta_pos = TimeDelta::new(123_456, 789_012_345).unwrap();
+        let delta_neg = TimeDelta::new(-42, 500_000_000).unwrap();
+        check_golden(
+            "time_delta_pos",
+            &delta_pos,
+            VEC_TIME_DELTA_POS.0,
+            VEC_TIME_DELTA_POS.1,
+            &delta_pos,
+        );
+        check_golden(
+            "time_delta_neg",
+            &delta_neg,
+            VEC_TIME_DELTA_NEG.0,
+            VEC_TIME_DELTA_NEG.1,
+            &delta_neg,
+        );
+        check_golden(
+            "time_delta_min",
+            &TimeDelta::MIN,
+            VEC_TIME_DELTA_MIN.0,
+            VEC_TIME_DELTA_MIN.1,
+            &TimeDelta::MIN,
+        );
+        check_golden(
+            "time_delta_max",
+            &TimeDelta::MAX,
+            VEC_TIME_DELTA_MAX.0,
+            VEC_TIME_DELTA_MAX.1,
+            &TimeDelta::MAX,
+        );
+
+        let pre_epoch = DateTime::<Utc>::from_timestamp(-1, 500_000_000).unwrap();
+        check_golden(
+            "ts_milliseconds_pre_epoch",
+            &TsMs { v: pre_epoch },
+            VEC_TS_MILLISECONDS_PRE_EPOCH.0,
+            VEC_TS_MILLISECONDS_PRE_EPOCH.1,
+            &TsMs { v: pre_epoch },
+        );
+
+        check_golden(
+            "ts_milliseconds_option_some",
+            &TsMsOpt { v: Some(utc) },
+            VEC_TS_MILLISECONDS_OPTION_SOME.0,
+            VEC_TS_MILLISECONDS_OPTION_SOME.1,
+            &TsMsOpt { v: Some(utc_ms) },
+        );
+        check_golden(
+            "ts_milliseconds_option_none",
+            &TsMsOpt { v: None },
+            VEC_TS_MILLISECONDS_OPTION_NONE.0,
+            VEC_TS_MILLISECONDS_OPTION_NONE.1,
+            &TsMsOpt { v: None },
+        );
+        check_golden(
+            "ts_microseconds_option_some",
+            &TsUsOpt { v: Some(utc) },
+            VEC_TS_MICROSECONDS_OPTION_SOME.0,
+            VEC_TS_MICROSECONDS_OPTION_SOME.1,
+            &TsUsOpt { v: Some(utc_us) },
+        );
+        check_golden(
+            "ts_microseconds_option_none",
+            &TsUsOpt { v: None },
+            VEC_TS_MICROSECONDS_OPTION_NONE.0,
+            VEC_TS_MICROSECONDS_OPTION_NONE.1,
+            &TsUsOpt { v: None },
+        );
+        check_golden(
+            "ts_nanoseconds_option_some",
+            &TsNsOpt { v: Some(utc) },
+            VEC_TS_NANOSECONDS_OPTION_SOME.0,
+            VEC_TS_NANOSECONDS_OPTION_SOME.1,
+            &TsNsOpt { v: Some(utc) },
+        );
+        check_golden(
+            "ts_nanoseconds_option_none",
+            &TsNsOpt { v: None },
+            VEC_TS_NANOSECONDS_OPTION_NONE.0,
+            VEC_TS_NANOSECONDS_OPTION_NONE.1,
+            &TsNsOpt { v: None },
+        );
+        check_golden(
+            "naive_ts_seconds_option_some",
+            &NTsSOpt { v: Some(ndt) },
+            VEC_NAIVE_TS_SECONDS_OPTION_SOME.0,
+            VEC_NAIVE_TS_SECONDS_OPTION_SOME.1,
+            &NTsSOpt { v: Some(utc_s.naive_utc()) },
+        );
+        check_golden(
+            "naive_ts_seconds_option_none",
+            &NTsSOpt { v: None },
+            VEC_NAIVE_TS_SECONDS_OPTION_NONE.0,
+            VEC_NAIVE_TS_SECONDS_OPTION_NONE.1,
+            &NTsSOpt { v: None },
+        );
+        check_golden(
+            "naive_ts_milliseconds_option_some",
+            &NTsMsOpt { v: Some(ndt) },
+            VEC_NAIVE_TS_MILLISECONDS_OPTION_SOME.0,
+            VEC_NAIVE_TS_MILLISECONDS_OPTION_SOME.1,
+            &NTsMsOpt { v: Some(utc_ms.naive_utc()) },
+        );
+        check_golden(
+            "naive_ts_milliseconds_option_none",
+            &NTsMsOpt { v: None },
+            VEC_NAIVE_TS_MILLISECONDS_OPTION_NONE.0,
+            VEC_NAIVE_TS_MILLISECONDS_OPTION_NONE.1,
+            &NTsMsOpt { v: None },
+        );
+        check_golden(
+            "naive_ts_microseconds_option_some",
+            &NTsUsOpt { v: Some(ndt) },
+            VEC_NAIVE_TS_MICROSECONDS_OPTION_SOME.0,
+            VEC_NAIVE_TS_MICROSECONDS_OPTION_SOME.1,
+            &NTsUsOpt { v: Some(utc_us.naive_utc()) },
+        );
+        check_golden(
+            "naive_ts_microseconds_option_none",
+            &NTsUsOpt { v: None },
+            VEC_NAIVE_TS_MICROSECONDS_OPTION_NONE.0,
+            VEC_NAIVE_TS_MICROSECONDS_OPTION_NONE.1,
+            &NTsUsOpt { v: None },
+        );
+        check_golden(
+            "naive_ts_nanoseconds_option_some",
+            &NTsNsOpt { v: Some(ndt) },
+            VEC_NAIVE_TS_NANOSECONDS_OPTION_SOME.0,
+            VEC_NAIVE_TS_NANOSECONDS_OPTION_SOME.1,
+            &NTsNsOpt { v: Some(ndt) },
+        );
+        check_golden(
+            "naive_ts_nanoseconds_option_none",
+            &NTsNsOpt { v: None },
+            VEC_NAIVE_TS_NANOSECONDS_OPTION_NONE.0,
+            VEC_NAIVE_TS_NANOSECONDS_OPTION_NONE.1,
+            &NTsNsOpt { v: None },
+        );
     }
 }
 
 #[cfg(all(feature = "rkyv-32", feature = "rkyv-validation"))]
 mod rkyv_golden {
     use sad_chrono::{
-        DateTime, FixedOffset, Month, NaiveDate, NaiveTime, TimeDelta, TimeZone, Utc, Weekday,
+        DateTime, Datelike, FixedOffset, Month, NaiveDate, NaiveTime, TimeDelta, TimeZone, Utc,
+        Weekday,
     };
 
     // These vectors pin the sad-chrono 0.5.0 rkyv 0.8 (little-endian, 32-bit pointer width) archive format.
@@ -310,6 +484,7 @@ mod rkyv_golden {
     ];
     const RKYV_MONTH: &[u8] = &[0x08];
     const RKYV_WEEKDAY: &[u8] = &[0x03];
+    const RKYV_ISO_WEEK_2020_W53: &[u8] = &[0x51, 0x93, 0x1f, 0x00];
 
     fn check_rkyv_golden<T>(name: &str, value: &T, expected: &[u8])
     where
@@ -362,5 +537,8 @@ mod rkyv_golden {
         check_rkyv_golden("time_delta_neg", &delta_neg, RKYV_TIME_DELTA_NEG);
         check_rkyv_golden("month", &Month::September, RKYV_MONTH);
         check_rkyv_golden("weekday", &Weekday::Thu, RKYV_WEEKDAY);
+        let iso_week = NaiveDate::from_ymd_opt(2020, 12, 31).unwrap().iso_week();
+        assert_eq!(iso_week.week(), 53);
+        check_rkyv_golden("iso_week_2020_w53", &iso_week, RKYV_ISO_WEEK_2020_W53);
     }
 }
