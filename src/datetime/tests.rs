@@ -1419,12 +1419,19 @@ fn test_from_system_time() {
     );
 
     // A `SystemTime` outside the range of `DateTime` saturates to the bounds
-    // instead of panicking (see #1802).
+    // instead of panicking (see #1802). Use `checked_add`/`checked_sub` so platforms
+    // with a narrower `SystemTime` range (such as Windows) skip unrepresentable inputs.
     let out_of_range = Duration::from_secs(10_000_000_000_000);
-    assert_eq!(DateTime::<Utc>::from(UNIX_EPOCH + out_of_range), DateTime::<Utc>::MAX_UTC);
-    assert_eq!(DateTime::<Utc>::from(UNIX_EPOCH - out_of_range), DateTime::<Utc>::MIN_UTC);
+    if let Some(t) = UNIX_EPOCH.checked_add(out_of_range) {
+        assert_eq!(DateTime::<Utc>::from(t), DateTime::<Utc>::MAX_UTC);
+    }
+    if let Some(t) = UNIX_EPOCH.checked_sub(out_of_range) {
+        assert_eq!(DateTime::<Utc>::from(t), DateTime::<Utc>::MIN_UTC);
+    }
     let out_of_range_subsec = Duration::new(10_000_000_000_000, 1);
-    assert_eq!(DateTime::<Utc>::from(UNIX_EPOCH - out_of_range_subsec), DateTime::<Utc>::MIN_UTC);
+    if let Some(t) = UNIX_EPOCH.checked_sub(out_of_range_subsec) {
+        assert_eq!(DateTime::<Utc>::from(t), DateTime::<Utc>::MIN_UTC);
+    }
 
     // The extreme `SystemTime`s, where the platform can represent them. The earliest one on
     // platforms with an `i64` `tv_sec` is `2^63` seconds before the epoch, whose seconds do not
@@ -1432,8 +1439,33 @@ fn test_from_system_time() {
     if let Some(latest) = UNIX_EPOCH.checked_add(Duration::from_secs(i64::MAX as u64)) {
         assert_eq!(DateTime::<Utc>::from(latest), DateTime::<Utc>::MAX_UTC);
     }
+    if let Some(latest_subsec) = UNIX_EPOCH.checked_add(Duration::new(i64::MAX as u64, 999_999_999))
+    {
+        assert_eq!(DateTime::<Utc>::from(latest_subsec), DateTime::<Utc>::MAX_UTC);
+    }
     if let Some(earliest) = UNIX_EPOCH.checked_sub(Duration::from_secs(1 << 63)) {
         assert_eq!(DateTime::<Utc>::from(earliest), DateTime::<Utc>::MIN_UTC);
+    }
+    if let Some(earliest_subsec) = UNIX_EPOCH.checked_sub(Duration::new(i64::MAX as u64, 1)) {
+        assert_eq!(DateTime::<Utc>::from(earliest_subsec), DateTime::<Utc>::MIN_UTC);
+    }
+
+    #[cfg(unix)]
+    {
+        let min_plus_1ns = DateTime::<Utc>::MIN_UTC + TimeDelta::nanoseconds(1);
+        for dt in [DateTime::<Utc>::MIN_UTC, min_plus_1ns, DateTime::<Utc>::MAX_UTC] {
+            assert_eq!(DateTime::<Utc>::from(SystemTime::from(dt)), dt);
+        }
+    }
+
+    #[cfg(feature = "clock")]
+    {
+        if let Some(t) = UNIX_EPOCH.checked_add(out_of_range) {
+            assert_eq!(DateTime::<Local>::from(t).with_timezone(&Utc), DateTime::<Utc>::MAX_UTC);
+        }
+        if let Some(t) = UNIX_EPOCH.checked_sub(out_of_range) {
+            assert_eq!(DateTime::<Local>::from(t).with_timezone(&Utc), DateTime::<Utc>::MIN_UTC);
+        }
     }
 
     // DateTime<Utc> -> SystemTime

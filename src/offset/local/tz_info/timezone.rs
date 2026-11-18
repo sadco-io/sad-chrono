@@ -705,19 +705,47 @@ mod tests {
 
     #[test]
     fn test_malformed_header_huge_count() {
-        // A header that passes validation but declares a `type_count` large enough
-        // that `type_count * 6` overflows `usize` on 32-bit targets. Parsing must
-        // return an error rather than panicking on the multiplication.
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(b"TZif\x00"); // magic + version 1
-        bytes.extend_from_slice(&[0u8; 15]); // reserved
-        bytes.extend_from_slice(&0u32.to_be_bytes()); // ut/local count
-        bytes.extend_from_slice(&0u32.to_be_bytes()); // std/wall count
-        bytes.extend_from_slice(&0u32.to_be_bytes()); // leap count
-        bytes.extend_from_slice(&0u32.to_be_bytes()); // transition count
-        bytes.extend_from_slice(&u32::MAX.to_be_bytes()); // type count
-        bytes.extend_from_slice(&1u32.to_be_bytes()); // char count
-        assert!(TimeZone::from_tz_data(&bytes).is_err());
+        fn build_header(
+            version: u8,
+            leap_count: u32,
+            transition_count: u32,
+            type_count: u32,
+            char_count: u32,
+        ) -> [u8; 44] {
+            let mut hdr = [0u8; 44];
+            hdr[..4].copy_from_slice(b"TZif");
+            hdr[4] = version;
+            hdr[28..32].copy_from_slice(&leap_count.to_be_bytes());
+            hdr[32..36].copy_from_slice(&transition_count.to_be_bytes());
+            hdr[36..40].copy_from_slice(&type_count.to_be_bytes());
+            hdr[40..44].copy_from_slice(&char_count.to_be_bytes());
+            hdr
+        }
+
+        // Valid v1 block (1 local time type, 4-byte designation) followed by a v2 header
+        // whose `transition_count * 8` overflows 32-bit `usize`.
+        let mut v2_case = Vec::new();
+        v2_case.extend_from_slice(&build_header(b'2', 0, 0, 1, 4));
+        v2_case.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+        v2_case.extend_from_slice(b"UTC\0");
+        v2_case.extend_from_slice(&build_header(b'2', 0, 0x2000_0000, 1, 4));
+
+        let cases: [(&str, Vec<u8>); 4] = [
+            ("v1 transition_count", build_header(0, 0, u32::MAX, 1, 1).to_vec()),
+            ("v1 type_count", build_header(0, 0, 0, u32::MAX, 1).to_vec()),
+            ("v1 leap_count", build_header(0, u32::MAX, 0, 1, 1).to_vec()),
+            ("v2 transition_count", v2_case),
+        ];
+
+        for (name, bytes) in cases {
+            let res = TimeZone::from_tz_data(&bytes);
+            assert!(res.is_err(), "{name} should fail");
+            #[cfg(target_pointer_width = "32")]
+            assert!(
+                matches!(res, Err(Error::InvalidTzFile("invalid header"))),
+                "{name} should fail with invalid header on 32-bit, got {res:?}"
+            );
+        }
     }
 
     #[test]
