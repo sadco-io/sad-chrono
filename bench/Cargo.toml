@@ -23,5 +23,5 @@ name = "serde"
 harness = false
 
 [dev-dependencies]
-criterion = "0.5.0"
+criterion = "0.8"
 serde_json = "1"

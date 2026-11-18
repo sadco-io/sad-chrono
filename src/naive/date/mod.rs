@@ -2633,14 +2633,14 @@ mod serde {
         }
 
         #[test]
-        fn test_serde_bincode() {
-            // Bincode is relevant to test separately from JSON because
+        fn test_serde_postcard() {
+            // Postcard is relevant to test separately from JSON because
             // it is not self-describing.
-            use bincode::{deserialize, serialize};
+            use postcard::{from_bytes, to_allocvec};
 
             let d = NaiveDate::from_ymd_opt(2014, 7, 24).unwrap();
-            let encoded = serialize(&d).unwrap();
-            let decoded: NaiveDate = deserialize(&encoded).unwrap();
+            let encoded = to_allocvec(&d).unwrap();
+            let decoded: NaiveDate = from_bytes(&encoded).unwrap();
             assert_eq!(d, decoded);
         }
     }
