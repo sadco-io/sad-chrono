@@ -1123,8 +1123,62 @@ mod tests {
     #[test]
     fn test_non_regular_tz_file() {
         let mut dev_zero = std::fs::File::open("/dev/zero").unwrap();
-        assert!(matches!(TimeZone::from_file(&mut dev_zero), Err(Error::InvalidTzFile(_))));
-        assert!(matches!(TimeZone::from_posix_tz(":/dev/zero"), Err(Error::InvalidTzFile(_))));
+        assert!(matches!(
+            TimeZone::from_file(&mut dev_zero),
+            Err(Error::InvalidTzFile("TZif file is not a regular file"))
+        ));
+        assert!(matches!(
+            TimeZone::from_posix_tz(":/dev/zero"),
+            Err(Error::InvalidTzFile("TZif path is not a regular file"))
+        ));
+        assert!(matches!(
+            TimeZone::from_posix_tz(":/"),
+            Err(Error::InvalidTzFile("TZif path is not a regular file"))
+        ));
         assert!(TimeZone::from_posix_tz("/dev/zero").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_fifo_tz_file() {
+        use std::sync::mpsc;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        struct RemoveOnDrop(std::path::PathBuf);
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+
+        let unique =
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let path =
+            std::env::temp_dir().join(format!("sad_chrono_fifo_{}_{}", std::process::id(), unique));
+        let _ = std::fs::remove_file(&path);
+
+        match std::process::Command::new("mkfifo").arg(&path).status() {
+            Ok(status) if status.success() => {}
+            _ => return,
+        }
+        let _guard = RemoveOnDrop(path.clone());
+
+        let path_str = match path.to_str() {
+            Some(s) => s,
+            None => return,
+        };
+        let tz_arg = format!(":{path_str}");
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(TimeZone::from_posix_tz(&tz_arg));
+        });
+
+        let res = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("from_posix_tz on FIFO should return without blocking");
+        assert!(matches!(res, Err(Error::InvalidTzFile("TZif path is not a regular file"))));
+
+        drop(_guard);
     }
 }
