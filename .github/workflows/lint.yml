@@ -72,7 +72,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      # Keep rust-toolchain and cargo-semver-checks pinned together:
+      # cargo-semver-checks only reads the rustdoc JSON formats it was built for.
+      - uses: dtolnay/rust-toolchain@1.100.0
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-semver-checks@0.51.0

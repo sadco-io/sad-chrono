@@ -1,9 +1,9 @@
 //! # sad-chrono: Date and Time for Rust
 //!
 //! `sad-chrono` is a maintained fork of [chrono] that keeps its 0.4 API stable and ships security
-//! and robustness fixes. It is maintained by the Sadco Security Team. `sad-chrono 0.4.x` is
-//! API-compatible with `chrono 0.4.x`; to keep existing `chrono::` paths unchanged, rename the
-//! dependency:
+//! and robustness fixes. It is maintained by the Sadco Security Team. `sad-chrono` keeps the
+//! public API of `chrono 0.4` (this release: chrono 0.4.45 plus fixes); to keep existing
+//! `chrono::` paths unchanged, rename the dependency:
 //!
 //! ```toml
 //! chrono = { package = "sad-chrono", version = "0.4.46" }
@@ -28,7 +28,7 @@
 //! * Types and operations are implemented to be reasonably efficient.
 //!
 //! Timezone data is not shipped with sad-chrono by default to limit binary sizes. The companion
-//! crates [Chrono-TZ] and [`tzfile`] depend on upstream `chrono` and implement *its* [`TimeZone`]
+//! crates [Chrono-TZ] and [`tzfile`] depend on upstream `chrono` and implement *its* `TimeZone`
 //! trait, so their types cannot be used with `sad_chrono` types directly unless `chrono` is
 //! replaced across the entire dependency graph (see the README's *Transitive dependencies* section).
 //!

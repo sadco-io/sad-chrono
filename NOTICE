@@ -36,4 +36,5 @@ This fork includes the following changes relative to chrono 0.4.45:
 The upstream fixes listed above were written by their upstream authors;
 see CHANGELOG.md for attribution of each change. The packaging changes
 and the Sadco Security Team fixes listed above were developed by the
-Sadco Security Team with assistance from Claude (Anthropic).
+Sadco Security Team with assistance from AI coding tools (Anthropic
+Claude, Google Gemini).

@@ -1968,8 +1968,8 @@ impl<Tz: TimeZone> From<DateTime<Tz>> for SystemTime {
     /// # Panics
     ///
     /// Panics if the `DateTime` cannot be represented as a `SystemTime` on the target
-    /// platform, such as dates before 1601-01-01 on Windows or dates before 1970-01-01
-    /// (`UNIX_EPOCH`) on `wasm32-unknown-unknown`.
+    /// platform, such as dates outside roughly 1601-01-01 to 30828-09-14 on Windows, or
+    /// dates before 1970-01-01 (`UNIX_EPOCH`) on `wasm32-unknown-unknown`.
     fn from(dt: DateTime<Tz>) -> SystemTime {
         let sec = dt.timestamp();
         let nsec = dt.timestamp_subsec_nanos();

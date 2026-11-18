@@ -36,7 +36,8 @@ chrono = { package = "sad-chrono", version = "0.4.46" }
 > types to the compiler. If a dependency takes or returns `chrono` types or implements its traits
 > (for example `chrono-tz`, or the `chrono` features of `sqlx`, `diesel`, `postgres-types`, or
 > `serde_with`), it will not accept your renamed `chrono::DateTime`, failing with errors such as
-> `expected chrono::DateTime<Utc>, found chrono::DateTime<Utc>` or `` `Tz` implements similarly named
+> `` expected `DateTime<Utc>`, found a different `DateTime<Utc>` `` (with the note
+> `` `DateTime<Utc>` is defined in crate `sad_chrono` ``) or `` `Tz` implements similarly named
 > trait `chrono::offset::TimeZone` ``. Run `cargo tree -i chrono` to find such dependencies; if you
 > have any, replace `chrono` across the whole dependency graph instead (see
 > [Transitive dependencies](#transitive-dependencies)).
@@ -76,6 +77,7 @@ vendored copy whose package name is set to `chrono`:
 ```sh
 git clone --depth 1 --branch v0.4.46 https://github.com/sadco-io/sad-chrono vendor/chrono
 sed -i.bak 's/^name = "sad-chrono"/name = "chrono"/' vendor/chrono/Cargo.toml
+rm -rf vendor/chrono/.git vendor/chrono/Cargo.toml.bak
 ```
 
 ```toml
