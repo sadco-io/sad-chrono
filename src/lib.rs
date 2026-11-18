@@ -62,10 +62,12 @@
 //!   using 32-bit integers for integral `*size` types, with `bytecheck` semantic validation.
 //! - `rkyv-64`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_64`),
 //!   using 64-bit integers for integral `*size` types, with `bytecheck` semantic validation.
-//! - `rkyv-validation`: Compatibility feature that enables `rkyv/alloc` (needed for
-//!   `rkyv::to_bytes` / `rkyv::from_bytes`). Semantic `bytecheck` invariant checks (rejecting
-//!   out-of-range archived dates, times, offsets, durations, ISO weeks, and `DateTime` local-time
-//!   ranges) are always active whenever `rkyv` `CheckBytes` is enabled via any `rkyv*` feature.
+//! - `rkyv-validation`: Compatibility feature that enables `rkyv/alloc` (needed for the high-level
+//!   `rkyv::to_bytes`, `rkyv::from_bytes`, and `rkyv::access`; no-alloc users call
+//!   `rkyv::api::low::{access, from_bytes}`, which run the same semantic checks). Semantic
+//!   `bytecheck` invariant checks (rejecting out-of-range archived dates, times, offsets,
+//!   durations, ISO weeks, and `DateTime` local-time ranges) are always active whenever `rkyv`
+//!   `CheckBytes` is enabled via any `rkyv*` feature.
 //! - `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 //! - `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
 //!   The implementation and API may change or even be removed in a patch release. Feedback welcome.

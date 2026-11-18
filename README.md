@@ -82,8 +82,9 @@ with these differences from chrono `0.4.45` / `sad-chrono 0.4.46`:
   `rkyv-64` map to `rkyv`'s `pointer_width_*` features and enable `rkyv/bytecheck`. Semantic `Verify`
   checks (rejecting out-of-range dates, times, offsets, durations, ISO weeks, and `DateTime`
   local-time ranges) are always active whenever `rkyv` `CheckBytes` is available. `rkyv-validation`
-  remains as a compatibility feature that also enables `rkyv/alloc` (for `rkyv::to_bytes` /
-  `rkyv::from_bytes`).
+  remains as a compatibility feature that also enables `rkyv/alloc` (needed for the high-level
+  `rkyv::to_bytes`, `rkyv::from_bytes`, and `rkyv::access`; no-alloc users call
+  `rkyv::api::low::{access, from_bytes}`, which run the same semantic checks).
 * **`From<DateTime<Tz>> for SystemTime` saturates** to the platform's nearest representable
   `SystemTime` instead of panicking on out-of-range dates.
 * **Malformed Android / OpenHarmony `tzdata` is rejected before allocating** when header or index
@@ -100,9 +101,10 @@ with these differences from chrono `0.4.45` / `sad-chrono 0.4.46`:
 2. Verify your toolchain meets the Rust `1.85.0` MSRV.
 3. If you enable any `rkyv*` feature:
    * Bump your own `rkyv` dependency to `0.8`.
-   * Keep or enable `rkyv-validation` if your code calls `rkyv::to_bytes` / `rkyv::from_bytes` (which
-     require `rkyv/alloc`); `rkyv-16` / `rkyv-32` / `rkyv-64` already enable `rkyv/bytecheck` and
-     all semantic validation checks for `rkyv::access`.
+   * Keep or enable `rkyv-validation` if your code calls the high-level `rkyv::to_bytes`,
+     `rkyv::from_bytes`, or `rkyv::access` (which require `rkyv/alloc`); `rkyv-16` / `rkyv-32` /
+     `rkyv-64` already enable `rkyv/bytecheck` and all semantic validation checks for
+     `rkyv::api::low::{access, from_bytes}` without `alloc`.
    * Update callers to the `rkyv` 0.8 API (`rkyv::to_bytes::<rkyv::rancor::Error>(&v)`,
      `rkyv::from_bytes::<T, rkyv::rancor::Error>(&b)`, and `rkyv::check_archived_root` ->
      `rkyv::access::<rkyv::Archived<T>, rkyv::rancor::Error>`), and re-archive stored data.
@@ -116,11 +118,12 @@ other crates in your dependency graph require `chrono = "^0.4"`. Cargo's `[patch
 package name and compatible version requirement, so Cargo ignores both `[patch.crates-io] chrono =
 { package = "sad-chrono", ... }` and a renamed `0.5.x` copy (`patch chrono v0.5.0 was not used
 in the crate graph`). Run `cargo tree -i chrono` to see which crates pull upstream `chrono`.
-Applications that want `sad-chrono` everywhere can patch with a vendored `0.4.x` copy whose
-package name is set to `chrono`:
+Applications that want `sad-chrono` everywhere can patch with a vendored `0.4.x` release tag
+whose package name is set to `chrono` (use the newest `v0.4.*` release tag, `v0.4.46` at the time
+of writing):
 
 ```sh
-git clone --depth 1 --branch 0.4.x https://github.com/sadco-io/sad-chrono vendor/chrono
+git clone --depth 1 --branch v0.4.46 https://github.com/sadco-io/sad-chrono vendor/chrono
 sed -i.bak 's/^name = "sad-chrono"/name = "chrono"/' vendor/chrono/Cargo.toml
 rm -rf vendor/chrono/.git vendor/chrono/Cargo.toml.bak
 ```
@@ -131,13 +134,13 @@ chrono = { path = "vendor/chrono" }
 ```
 
 Then run `cargo update -p chrono`, and verify that `cargo tree -i chrono` shows
-`chrono v0.4.x (vendor/chrono)`. Keep your own dependency as plain `chrono = "0.4"` without the
-package rename so that all crates share one `DateTime` type.
+`chrono v0.4.46 (vendor/chrono)` (or the `v0.4.*` release tag you cloned). Keep your own dependency
+as plain `chrono = "0.4"` without the package rename so that all crates share one `DateTime` type.
 
 Constraints:
 
-* This works only when every `chrono` requirement in the dependency graph accepts `0.4.46` (a
-  `^0.4` requirement); an exact pin such as `=0.4.40` blocks it.
+* This works only when every `chrono` requirement in the dependency graph is `^0.4`-compatible; an
+  exact pin such as `=0.4.40` blocks it.
 * `[patch]` applies only in the top-level workspace, so a library cannot apply this for its users.
 
 ## For library authors
@@ -154,12 +157,13 @@ Because the dependency key stays `chrono`, your `use chrono::...` paths,
 `chrono = ["dep:chrono"]` or `serde = ["chrono?/serde"]` keep working. Enable every `sad-chrono`
 feature you use explicitly: features of `chrono` and `sad-chrono` do not unify.
 
-**Which line?** Depending on `sad-chrono = "0.5"` requires Rust `1.85.0` (needed by
-`windows-link` `0.100` across targets, with no older compatible `0.5` release to fall back to) and
-`rkyv` `0.8` for all downstream users. Libraries that must support older Rust versions or `rkyv`
-`0.7` can target `sad-chrono = "0.4"`, noting that `sad-chrono 0.4` and `sad-chrono 0.5` are
-distinct crates whose types do not interoperate — moving a library's public API from `0.4` to `0.5`
-is a breaking change.
+**Which line?** Depending on `sad-chrono = "0.5"` requires Rust `1.85.0` on every target (Cargo's
+`rust-version` is crate-wide, even though it was raised for `windows-link` `0.100`, a Windows-only
+dependency, with no older compatible `0.5` release to fall back to). Only downstream users who
+enable `rkyv*` features have to move to `rkyv` `0.8`. Libraries that must support older Rust
+versions or `rkyv` `0.7` can target `sad-chrono = "0.4"`, noting that `sad-chrono 0.4` and
+`sad-chrono 0.5` are distinct crates whose types do not interoperate — moving a library's public
+API from `0.4` to `0.5` is a breaking change.
 
 **Is it a breaking change?** `sad_chrono::DateTime` and `chrono::DateTime` (as well as
 `sad-chrono 0.4` and `sad-chrono 0.5` types) are distinct types. If
@@ -267,7 +271,7 @@ Optional features:
 * `rkyv-16`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_16`), using 16-bit integers for integral `*size` types, with `bytecheck` semantic validation.
 * `rkyv-32`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_32`), using 32-bit integers for integral `*size` types, with `bytecheck` semantic validation.
 * `rkyv-64`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_64`), using 64-bit integers for integral `*size` types, with `bytecheck` semantic validation.
-* `rkyv-validation`: Compatibility feature that enables `rkyv/alloc` (for `rkyv::to_bytes` / `rkyv::from_bytes`). Semantic `bytecheck` invariant checks (rejecting out-of-range archived dates, times, offsets, durations, ISO weeks, and `DateTime` local-time ranges) are always active whenever `rkyv` `CheckBytes` is available via any `rkyv*` feature.
+* `rkyv-validation`: Compatibility feature that enables `rkyv/alloc` (needed for the high-level `rkyv::to_bytes`, `rkyv::from_bytes`, and `rkyv::access`; no-alloc users call `rkyv::api::low::{access, from_bytes}`, which run the same semantic checks). Semantic `bytecheck` invariant checks (rejecting out-of-range archived dates, times, offsets, durations, ISO weeks, and `DateTime` local-time ranges) are always active whenever `rkyv` `CheckBytes` is available via any `rkyv*` feature.
 * `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 * `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
   The implementation and API may change or even be removed in a patch release. Feedback welcome.
