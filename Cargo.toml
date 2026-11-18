@@ -36,6 +36,7 @@ rkyv-64 = ["dep:rkyv", "rkyv?/pointer_width_64"]
 rkyv-validation = ["dep:rkyv", "rkyv?/bytecheck", "rkyv?/alloc"]
 # Features for internal use only:
 __internal_bench = []
+__internal_fuzz = []
 
 [dependencies]
 num-traits = { version = "0.2", default-features = false }

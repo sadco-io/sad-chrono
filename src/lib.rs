@@ -619,6 +619,20 @@ pub use traits::{Datelike, Timelike};
 #[doc(hidden)]
 pub use naive::__BenchYearFlags;
 
+#[cfg(all(unix, feature = "clock", feature = "__internal_fuzz"))]
+#[doc(hidden)]
+pub mod __fuzz {
+    /// Exercise the TZif parser and time zone lookups against arbitrary bytes.
+    pub fn tzif(data: &[u8]) {
+        crate::offset::local::tz_info::fuzz_tzif(data);
+    }
+
+    /// Exercise the POSIX / RFC 8536 TZ string parser and time zone lookups against arbitrary bytes.
+    pub fn tz_string(data: &[u8]) {
+        crate::offset::local::tz_info::fuzz_tz_string(data);
+    }
+}
+
 /// Serialization/Deserialization with serde
 ///
 /// The [`DateTime`] type has default implementations for (de)serializing to/from the [RFC 3339]

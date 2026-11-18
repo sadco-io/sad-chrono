@@ -9,6 +9,8 @@ use std::{error, fmt, io};
 
 mod timezone;
 pub(crate) use timezone::TimeZone;
+#[cfg(feature = "__internal_fuzz")]
+pub(crate) use timezone::{fuzz_tz_string, fuzz_tzif};
 
 mod parser;
 mod rule;

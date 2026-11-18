@@ -104,7 +104,7 @@ mod inner {
 }
 
 #[cfg(unix)]
-mod tz_info;
+pub(crate) mod tz_info;
 
 /// The local timescale.
 ///

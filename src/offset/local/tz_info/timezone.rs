@@ -676,6 +676,66 @@ pub(crate) const SECONDS_PER_WEEK: i64 = SECONDS_PER_DAY * DAYS_PER_WEEK;
 /// Number of seconds in 28 days
 const SECONDS_PER_28_DAYS: i64 = SECONDS_PER_DAY * 28;
 
+#[cfg(feature = "__internal_fuzz")]
+fn exercise_timezone(tz: &TimeZone) {
+    for unix_time in [i64::MIN, -1_000_000_000, 0, 1_000_000_000, 1_700_000_000, i64::MAX] {
+        if let Ok(ltt) = tz.find_local_time_type(unix_time) {
+            assert!(crate::FixedOffset::east_opt(ltt.offset()).is_some());
+        }
+    }
+
+    let local_times = [
+        NaiveDateTime::MIN,
+        crate::NaiveDate::from_ymd_opt(1938, 4, 24)
+            .and_then(|d| d.and_hms_opt(22, 13, 20))
+            .unwrap(),
+        crate::NaiveDate::from_ymd_opt(1970, 1, 1).and_then(|d| d.and_hms_opt(0, 0, 0)).unwrap(),
+        crate::NaiveDate::from_ymd_opt(2001, 9, 9).and_then(|d| d.and_hms_opt(1, 46, 40)).unwrap(),
+        crate::NaiveDate::from_ymd_opt(2023, 11, 14)
+            .and_then(|d| d.and_hms_opt(22, 13, 20))
+            .unwrap(),
+        NaiveDateTime::MAX,
+    ];
+    for local_time in local_times {
+        if let Ok(mapped) = tz.find_local_time_type_from_local(local_time) {
+            match mapped {
+                crate::MappedLocalTime::Single(ltt) => {
+                    assert!(crate::FixedOffset::east_opt(ltt.offset()).is_some());
+                }
+                crate::MappedLocalTime::Ambiguous(early, late) => {
+                    assert!(crate::FixedOffset::east_opt(early.offset()).is_some());
+                    assert!(crate::FixedOffset::east_opt(late.offset()).is_some());
+                }
+                crate::MappedLocalTime::None => {}
+            }
+        }
+    }
+}
+
+/// Fuzz entry point for TZif binary parsing and lookups.
+#[cfg(feature = "__internal_fuzz")]
+pub(crate) fn fuzz_tzif(data: &[u8]) {
+    if let Ok(tz) = TimeZone::from_tz_data(data) {
+        exercise_timezone(&tz);
+    }
+}
+
+/// Fuzz entry point for POSIX / RFC 8536 TZ string parsing and lookups.
+#[cfg(feature = "__internal_fuzz")]
+pub(crate) fn fuzz_tz_string(data: &[u8]) {
+    for use_string_extensions in [false, true] {
+        if let Ok(rule) = TransitionRule::from_tz_string(data, use_string_extensions) {
+            let local_time_types = match rule {
+                TransitionRule::Fixed(local_time_type) => vec![local_time_type],
+                TransitionRule::Alternate(AlternateTime { std, dst, .. }) => vec![std, dst],
+            };
+            if let Ok(tz) = TimeZone::new(vec![], local_time_types, vec![], Some(rule)) {
+                exercise_timezone(&tz);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::Error;
@@ -1180,5 +1240,19 @@ mod tests {
         assert!(matches!(res, Err(Error::InvalidTzFile("TZif path is not a regular file"))));
 
         drop(_guard);
+    }
+
+    #[cfg(all(unix, feature = "__internal_fuzz"))]
+    #[test]
+    fn test_fuzz_entrypoints() {
+        super::fuzz_tzif(b"");
+        super::fuzz_tzif(
+            b"TZif2\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        );
+        super::fuzz_tz_string(b"");
+        super::fuzz_tz_string(b"UTC0");
+        super::fuzz_tz_string(b"EST5EDT,M3.2.0,M11.1.0");
+        super::fuzz_tz_string(b"<-03>3<-02>,M3.5.0/-2,M10.5.0/-1");
     }
 }
