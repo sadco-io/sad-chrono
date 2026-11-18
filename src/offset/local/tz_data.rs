@@ -215,6 +215,24 @@ mod tests {
     }
 
     #[test]
+    fn test_tzdata_header_data_offset_precedes_index_offset() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"tzdata2024a\0");
+        data.extend_from_slice(&40u32.to_be_bytes()); // index_offset
+        data.extend_from_slice(&24u32.to_be_bytes()); // data_offset < index_offset
+        data.extend_from_slice(&40u32.to_be_bytes()); // zonetab_offset
+        data.extend_from_slice(&[0u8; 16]);
+
+        for err in [
+            find_tz_data::<OHOS_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err(),
+            find_tz_data::<ANDROID_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err(),
+        ] {
+            assert_eq!(err.kind(), ErrorKind::InvalidData);
+            assert_eq!(err.to_string(), "tzdata data_offset precedes index_offset");
+        }
+    }
+
+    #[test]
     fn test_tzdata_header_oob_data_offset() {
         let mut data = Vec::new();
         data.extend_from_slice(b"tzdata2024a\0");
@@ -223,27 +241,39 @@ mod tests {
         data.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes()); // zonetab_offset
         assert_eq!(data.len(), 24);
 
-        let err = find_tz_data::<OHOS_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+        for err in [
+            find_tz_data::<OHOS_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err(),
+            find_tz_data::<ANDROID_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err(),
+        ] {
+            assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+            assert_eq!(err.to_string(), "tzdata index region exceeds file length");
+        }
     }
 
     #[test]
     fn test_tzdata_entry_oob_length() {
-        let data_offset = (24 + OHOS_ENTRY_LEN) as u32;
-        let mut data = Vec::new();
-        data.extend_from_slice(b"tzdata2024a\0");
-        data.extend_from_slice(&24u32.to_be_bytes()); // index_offset
-        data.extend_from_slice(&data_offset.to_be_bytes());
-        data.extend_from_slice(&data_offset.to_be_bytes()); // zonetab_offset
+        fn check_entry_oob<const ENTRY_LEN: usize>(trailing: &[u8]) {
+            let data_offset = (24 + ENTRY_LEN) as u32;
+            let mut data = Vec::new();
+            data.extend_from_slice(b"tzdata2024a\0");
+            data.extend_from_slice(&24u32.to_be_bytes()); // index_offset
+            data.extend_from_slice(&data_offset.to_be_bytes());
+            data.extend_from_slice(&data_offset.to_be_bytes()); // zonetab_offset
 
-        let mut name = [0u8; TZ_NAME_LEN];
-        name[..3].copy_from_slice(b"UTC");
-        data.extend_from_slice(&name);
-        data.extend_from_slice(&0u32.to_be_bytes()); // offset
-        data.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes()); // length
+            let mut name = [0u8; TZ_NAME_LEN];
+            name[..3].copy_from_slice(b"UTC");
+            data.extend_from_slice(&name);
+            data.extend_from_slice(&0u32.to_be_bytes()); // offset
+            data.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes()); // length
+            data.extend_from_slice(trailing);
 
-        let err = find_tz_data::<OHOS_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+            let err = find_tz_data::<ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+            assert_eq!(err.to_string(), "tzdata entry exceeds file length");
+        }
+
+        check_entry_oob::<OHOS_ENTRY_LEN>(&[]);
+        check_entry_oob::<ANDROID_ENTRY_LEN>(&0u32.to_be_bytes());
     }
 
     #[test]
