@@ -1949,6 +1949,13 @@ impl From<SystemTime> for DateTime<Utc> {
 
 #[cfg(feature = "clock")]
 impl From<SystemTime> for DateTime<Local> {
+    /// Converts a `SystemTime` into a `DateTime<Local>`.
+    ///
+    /// Out-of-range values saturate in UTC to [`DateTime::MIN_UTC`] or [`DateTime::MAX_UTC`]
+    /// before converting to [`Local`]. In time zones with a non-zero UTC offset, the resulting
+    /// `DateTime<Local>` can have a local date-time outside [`NaiveDateTime`]'s range, so
+    /// calling methods that compute the local date-time (such as [`DateTime::naive_local`])
+    /// will panic, just as for any `DateTime` at the UTC bounds.
     fn from(t: SystemTime) -> DateTime<Local> {
         DateTime::<Utc>::from(t).with_timezone(&Local)
     }
@@ -1956,6 +1963,13 @@ impl From<SystemTime> for DateTime<Local> {
 
 #[cfg(feature = "std")]
 impl<Tz: TimeZone> From<DateTime<Tz>> for SystemTime {
+    /// Converts a `DateTime<Tz>` into a `SystemTime`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `DateTime` cannot be represented as a `SystemTime` on the target
+    /// platform, such as dates before 1601-01-01 on Windows or dates before 1970-01-01
+    /// (`UNIX_EPOCH`) on `wasm32-unknown-unknown`.
     fn from(dt: DateTime<Tz>) -> SystemTime {
         let sec = dt.timestamp();
         let nsec = dt.timestamp_subsec_nanos();

@@ -9,6 +9,11 @@
 //! chrono = { package = "sad-chrono", version = "0.4.46" }
 //! ```
 //!
+//! Note that `sad_chrono` types are distinct from upstream `chrono` types: if a dependency
+//! exposes `chrono` types in its public API, replace `chrono` across the entire dependency graph
+//! (see the README's *Transitive dependencies* section). Library authors should also see the
+//! README's *For library authors* and *Stability and versioning* sections.
+//!
 //! [chrono]: https://github.com/chronotope/chrono
 //!
 //! Chrono aims to provide all functionality needed to do correct operations on dates and times in
@@ -22,8 +27,10 @@
 //! * The [`Local`] timezone works with the current timezone of the OS.
 //! * Types and operations are implemented to be reasonably efficient.
 //!
-//! Timezone data is not shipped with chrono by default to limit binary sizes. Use the companion
-//! crate [Chrono-TZ] or [`tzfile`] for full timezone support.
+//! Timezone data is not shipped with sad-chrono by default to limit binary sizes. The companion
+//! crates [Chrono-TZ] and [`tzfile`] depend on upstream `chrono` and implement *its* [`TimeZone`]
+//! trait, so their types cannot be used with `sad_chrono` types directly unless `chrono` is
+//! replaced across the entire dependency graph (see the README's *Transitive dependencies* section).
 //!
 //! [proleptic Gregorian calendar]: https://en.wikipedia.org/wiki/Proleptic_Gregorian_calendar
 //! [Chrono-TZ]: https://crates.io/crates/chrono-tz
@@ -41,7 +48,8 @@
 //!   `alloc` and adds interoperation with standard library types and traits.
 //! - `clock`: Enables reading the local timezone (`Local`). This is a superset of `now`.
 //! - `now`: Enables reading the system time (`now`).
-//! - `wasmbind`: Interface with the JS Date API for the `wasm32` target.
+//! - `wasmbind`: Interface with the JS Date API on wasm targets (`target_family = "wasm"`,
+//!   excluding Emscripten and WASI).
 //!
 //! Optional features:
 //!
@@ -57,6 +65,9 @@
 //! - `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 //! - `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
 //!   The implementation and API may change or even be removed in a patch release. Feedback welcome.
+//! - `defmt`: Implement `defmt::Format` for sad-chrono types, for embedded logging.
+//! - `core-error`: Implement `core::error::Error` for the error types without `std` (requires
+//!   Rust 1.81).
 //! - `oldtime`: This feature no longer has any effect; it used to offer compatibility with the
 //!   `time` 0.1 crate.
 //!
@@ -423,17 +434,17 @@
 //!
 //! ## Rust version requirements
 //!
-//! The Minimum Supported Rust Version (MSRV) is currently **Rust 1.61.0**.
+//! The Minimum Supported Rust Version (MSRV) is currently **Rust 1.62.0**.
 //!
-//! The MSRV is explicitly tested in CI. It may be bumped in minor releases, but this is not done
-//! lightly.
+//! The MSRV is explicitly tested in CI. It is raised only in a release whose changelog says so,
+//! and never above the MSRV of the latest upstream chrono 0.4 release.
 //!
 //! ## Relation between chrono and time 0.1
 //!
 //! Rust first had a `time` module added to `std` in its 0.7 release. It later moved to
 //! `libextra`, and then to a `libtime` library shipped alongside the standard library. In 2014
 //! work on chrono started in order to provide a full-featured date and time library in Rust.
-//! Some improvements from chrono made it into the standard library; notably, `sad_chrono::Duration`
+//! Some improvements from chrono made it into the standard library; notably, `chrono::Duration`
 //! was included as `std::time::Duration` ([rust#15934]) in 2014.
 //!
 //! In preparation of Rust 1.0 at the end of 2014 `libtime` was moved out of the Rust distro and

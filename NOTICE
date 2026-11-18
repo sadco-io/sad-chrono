@@ -22,11 +22,18 @@ This fork includes the following changes relative to chrono 0.4.45:
 - Unreleased upstream fixes from chrono's main branch, including time
   zone data hardening (TZif local time lookup overflow, Android and
   OpenHarmony tzdata index bounds) and panic and correctness fixes in
-  date construction, iteration and offset formatting
+  date construction and offset formatting
 - Pending upstream fixes for chrono#1802: checked arithmetic for TZif
   data block lengths, and a saturating, non-panicking
   From<SystemTime> for DateTime<Utc>
+- Security and robustness fixes by the Sadco Security Team: bounds checks
+  on local time type UTC offsets (±23:59:59) in TZif and POSIX TZ
+  strings, regular-file and 1 MiB size checks when loading TZif files,
+  and an overflow fix at the earliest representable SystemTime in
+  From<SystemTime> for DateTime<Utc>
 - The crate is published as `sad-chrono` (library `sad_chrono`)
 
-These modifications were developed by the Sadco Security Team with
-assistance from Claude (Anthropic).
+The upstream fixes listed above were written by their upstream authors;
+see CHANGELOG.md for attribution of each change. The packaging changes
+and the Sadco Security Team fixes listed above were developed by the
+Sadco Security Team with assistance from Claude (Anthropic).

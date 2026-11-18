@@ -25,13 +25,21 @@ ships those fixes, and takes on new ones. It is maintained by the Sadco Security
 
 ## Usage
 
-To switch an existing project over **without touching any code**, rename the dependency so that
-`use chrono::...` keeps working:
+To switch your own code over without changing any `use chrono::...` paths, rename the dependency:
 
 ```toml
 [dependencies]
 chrono = { package = "sad-chrono", version = "0.4.46" }
 ```
+
+> **Check your dependencies first.** `sad_chrono::DateTime` and `chrono::DateTime` are distinct
+> types to the compiler. If a dependency takes or returns `chrono` types or implements its traits
+> (for example `chrono-tz`, or the `chrono` features of `sqlx`, `diesel`, `postgres-types`, or
+> `serde_with`), it will not accept your renamed `chrono::DateTime`, failing with errors such as
+> `expected chrono::DateTime<Utc>, found chrono::DateTime<Utc>` or `` `Tz` implements similarly named
+> trait `chrono::offset::TimeZone` ``. Run `cargo tree -i chrono` to find such dependencies; if you
+> have any, replace `chrono` across the whole dependency graph instead (see
+> [Transitive dependencies](#transitive-dependencies)).
 
 Or depend on it under its own name and import from `sad_chrono`:
 
@@ -51,18 +59,78 @@ Feature flags are the same as chrono's (see [Crate features](#crate-features)).
 
 ## Compatibility with the `chrono` crate
 
-**Version-line contract: `sad-chrono 0.4.x` is API-compatible with `chrono 0.4.x`.** The version
-numbers are aligned deliberately, so the compatibility target is clear from the dependency line
-alone. `sad-chrono 0.4.46` was forked from chrono's `main` branch after `0.4.45` (commit
-[`6adaa52`][fork-point]).
+`sad-chrono 0.4.46` was forked from chrono's `main` branch after `0.4.45` (commit
+[`6adaa52`][fork-point]). The public API, feature flags, MSRV and serialization formats (serde,
+rkyv) are unchanged from chrono `0.4.45`. The only behavior changes are fixes for inputs that
+previously panicked, exhausted resources, or returned wrong or invalid results; they are listed in
+the [changelog](CHANGELOG.md).
 
-The public API, feature flags, MSRV and serialization formats (serde, rkyv) are unchanged. The only
-behavior changes are fixes for inputs that previously panicked or returned wrong results; they are
-listed in the [changelog](CHANGELOG.md).
+### Transitive dependencies
 
-**Transitive dependencies:** crates in your dependency tree that depend on `chrono` will keep
-pulling upstream `chrono`. Cargo's `[patch]` matches on package name, so it cannot substitute
-`sad-chrono` for `chrono` deeper in the graph. The rename above covers your own code.
+Crates in your dependency tree that depend on `chrono` keep pulling upstream `chrono`. Run
+`cargo tree -i chrono` to see which ones. Cargo's `[patch]` matches on package name, so Cargo
+ignores `[patch.crates-io] chrono = { package = "sad-chrono", ... }` and warns that the patch was
+not used in the crate graph. Applications that want `sad-chrono` everywhere can patch with a
+vendored copy whose package name is set to `chrono`:
+
+```sh
+git clone --depth 1 --branch v0.4.46 https://github.com/sadco-io/sad-chrono vendor/chrono
+sed -i.bak 's/^name = "sad-chrono"/name = "chrono"/' vendor/chrono/Cargo.toml
+```
+
+```toml
+[patch.crates-io]
+chrono = { path = "vendor/chrono" }
+```
+
+Then run `cargo update -p chrono`, and verify that `cargo tree -i chrono` shows
+`chrono v0.4.46 (vendor/chrono)`. Keep your own dependency as plain `chrono = "0.4"` without the
+package rename so that all crates share one `DateTime` type.
+
+Constraints:
+
+* This works only when every `chrono` requirement in the dependency graph accepts `0.4.46` (a
+  `^0.4` requirement); an exact pin such as `=0.4.40` blocks it.
+* `[patch]` applies only in the top-level workspace, so a library cannot apply this for its users.
+
+## For library authors
+
+Libraries can switch with the same rename:
+
+```toml
+[dependencies]
+chrono = { package = "sad-chrono", version = "0.4.46" }
+```
+
+Because the dependency key stays `chrono`, your `use chrono::...` paths,
+`#[serde(with = "chrono::serde::ts_seconds")]` attributes, and feature names such as
+`chrono = ["dep:chrono"]` or `serde = ["chrono?/serde"]` keep working. Enable every `sad-chrono`
+feature you use explicitly: features of `chrono` and `sad-chrono` do not unify.
+
+**Is it a breaking change?** `sad_chrono::DateTime` and `chrono::DateTime` are distinct types. If
+`chrono` types appear in your public API (function signatures, public fields, trait impls, or
+`pub use chrono`), switching breaks callers that pass upstream `chrono` values. Release the switch
+as a new semver-major version, or support both behind separate features (for example
+`chrono = ["dep:chrono"]` and `sad-chrono = ["dep:sad-chrono"]`) with an impl for each. If you only
+use `chrono` internally, switching is not a breaking change.
+
+**Coexistence.** `chrono` and `sad-chrono` can both be in one dependency graph during a migration.
+Convert values at the boundary through timestamps (for example
+`sad_chrono::DateTime::from_timestamp(dt.timestamp(), dt.timestamp_subsec_nanos())`), `SystemTime`,
+or RFC 3339 strings.
+
+## Stability and versioning
+
+`sad-chrono 0.4.x` keeps the public API of `chrono 0.4` and will not make semver-incompatible
+changes on the `0.4` line. Version numbers continue `chrono`'s `0.4` sequence independently of
+upstream: `sad-chrono 0.4.46` contains `chrono 0.4.45` plus the fixes listed in
+[CHANGELOG.md](CHANGELOG.md). When upstream publishes a new `0.4.x` release, we merge it into the
+next `sad-chrono` release, and each release's changelog states which `chrono` version and which
+fixes it includes (even if `sad-chrono`'s patch number has already moved ahead of upstream's).
+Upstream fixes are backported with `git cherry-pick -x` and credit their authors.
+
+MSRV is Rust 1.62.0. It is raised only in a release whose changelog says so, and never above the
+MSRV of the latest upstream chrono 0.4 release.
 
 ## Security and robustness fixes
 
@@ -71,10 +139,13 @@ Fixes in `sad-chrono` that are not in any released version of chrono:
 | Input | chrono 0.4.45 | sad-chrono |
 |-------|---------------|------------|
 | TZif header with huge record counts ([chrono#1802][audit]) | `usize` overflow panic on 32-bit targets | Rejected as an invalid TZif file |
+| POSIX `TZ` with implicit DST offset reaching ±24h (e.g. `AAA-23BBB,J1,J365`) | `Local::now()` panics | Rejected as invalid `TZ`; `Local` falls back |
+| TZif local time type with UTC offset outside ±23:59:59 | `Local::now()` panics | Rejected as invalid TZif; `Local` falls back |
+| `TZ` pointing to a non-regular file or > 1 MiB file (e.g. `/dev/zero`, FIFO) | Unbounded read / memory exhaustion or hang | Rejected before reading (`is_file()`) or capped at 1 MiB; `Local` falls back |
 | TZif transition times near `i64::MIN` / `i64::MAX` | Overflow panic when mapping a local time (wraps in release builds) | Saturating arithmetic, no panic |
 | Android / OpenHarmony tzdata index with a partial trailing entry | Out-of-bounds slice panic | Partial entry skipped |
 | `DateTime<Utc>::from(SystemTime)` outside `DateTime`'s range ([chrono#1802][audit]) | Panic | Saturates to `DateTime::MIN_UTC` / `MAX_UTC` |
-| `NaiveDate::from_isoywd_opt` with `i32::MIN` / `i32::MAX` years | Overflow panic | Returns `None`, as documented |
+| `NaiveDate::from_isoywd_opt` with `i32::MIN` / `i32::MAX` years | Overflow panic in builds with overflow checks (wraps in release builds) | Returns `None`, as documented |
 | Formatting offsets of `±23:59:30` or more to minute precision | Emits `+24:00`, which fails to parse back | Clamped to `+23:59` |
 
 See the [changelog](CHANGELOG.md) for the full list, and [SECURITY.md](SECURITY.md) to report a
@@ -93,15 +164,17 @@ Chrono aims to provide all functionality needed to do correct operations on date
 * The [`DateTime`](https://docs.rs/sad-chrono/latest/sad_chrono/struct.DateTime.html) type is timezone-aware
   by default, with separate timezone-naive types.
 * Operations that may produce an invalid or ambiguous date and time return `Option` or
-  [`MappedLocalTime`](https://docs.rs/sad-chrono/latest/sad_chrono/offset/enum.MappedLocalTime.html).
+  [`MappedLocalTime`](https://docs.rs/sad-chrono/latest/sad_chrono/offset/type.MappedLocalTime.html).
 * Configurable parsing and formatting with an `strftime` inspired date and time formatting syntax.
 * The [`Local`](https://docs.rs/sad-chrono/latest/sad_chrono/offset/struct.Local.html) timezone works with
   the current timezone of the OS.
 * Types and operations are implemented to be reasonably efficient.
 
-Timezone data is not shipped with sad-chrono by default to limit binary sizes. Use the companion crate
-[Chrono-TZ](https://crates.io/crates/chrono-tz) or [`tzfile`](https://crates.io/crates/tzfile) for
-full timezone support.
+Timezone data is not shipped with sad-chrono by default to limit binary sizes. The companion crates
+[Chrono-TZ](https://crates.io/crates/chrono-tz) and [`tzfile`](https://crates.io/crates/tzfile)
+depend on upstream `chrono` and implement *its* `TimeZone` trait, so you cannot use their types with
+`sad_chrono` types directly. To use them with `sad-chrono`, replace `chrono` across the entire
+dependency graph (see [Transitive dependencies](#transitive-dependencies)).
 
 ## Documentation
 
@@ -124,7 +197,8 @@ Default features:
   and adds interoperation with standard library types and traits.
 * `clock`: Enables reading the local timezone (`Local`). This is a superset of `now`.
 * `now`: Enables reading the system time (`now`).
-* `wasmbind`: Interface with the JS Date API for the `wasm32` target.
+* `wasmbind`: Interface with the JS Date API on wasm targets (`target_family = "wasm"`, excluding
+  Emscripten and WASI).
 
 Optional features:
 
@@ -137,6 +211,8 @@ Optional features:
 * `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 * `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
   The implementation and API may change or even be removed in a patch release. Feedback welcome.
+* `defmt`: Implement `defmt::Format` for sad-chrono types, for embedded logging.
+* `core-error`: Implement `core::error::Error` for the error types without `std` (requires Rust 1.81).
 * `oldtime`: This feature no longer has any effect; it used to offer compatibility with the `time` 0.1 crate.
 
 Note: The `rkyv{,-16,-32,-64}` features are mutually exclusive.
@@ -146,10 +222,8 @@ Note: The `rkyv{,-16,-32,-64}` features are mutually exclusive.
 
 ## Rust version requirements
 
-The Minimum Supported Rust Version (MSRV) is currently **Rust 1.62.0**.
-
-The MSRV is explicitly tested in CI. It may be bumped in minor releases, but this is not done
-lightly.
+MSRV is Rust 1.62.0. It is raised only in a release whose changelog says so, and never above the
+MSRV of the latest upstream chrono 0.4 release.
 
 ## License
 
