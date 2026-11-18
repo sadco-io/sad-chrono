@@ -73,7 +73,7 @@ impl TzDataHeader {
             let mut magic = [0; TZDATA_VERSION_LEN];
             data.read_exact(&mut magic)?;
             if !magic.starts_with(b"tzdata") || magic[TZDATA_VERSION_LEN - 1] != 0 {
-                return Err(Error::new(ErrorKind::Other, "invalid tzdata header magic"));
+                return Err(Error::other("invalid tzdata header magic"));
             }
             let mut version = [0; 5];
             version.copy_from_slice(&magic[6..11]);
@@ -99,8 +99,22 @@ struct TzDataIndexes {
 
 impl TzDataIndexes {
     /// Create a new `TzDataIndexes` from the `tzdata` file reader.
-    fn new<const ENTRY_LEN: usize>(mut reader: impl Read, header: &TzDataHeader) -> Result<Self> {
-        let mut buf = vec![0; header.data_offset.saturating_sub(header.index_offset) as usize];
+    fn new<const ENTRY_LEN: usize>(
+        mut reader: impl Read + Seek,
+        header: &TzDataHeader,
+    ) -> Result<Self> {
+        let index_len = header.data_offset.checked_sub(header.index_offset).ok_or_else(|| {
+            Error::new(ErrorKind::InvalidData, "tzdata data_offset precedes index_offset")
+        })?;
+        let file_len = reader.seek(SeekFrom::End(0))?;
+        if u64::from(header.data_offset) > file_len {
+            return Err(Error::new(
+                ErrorKind::UnexpectedEof,
+                "tzdata index region exceeds file length",
+            ));
+        }
+        reader.seek(SeekFrom::Start(u64::from(header.index_offset)))?;
+        let mut buf = vec![0; index_len as usize];
         reader.read_exact(&mut buf)?;
         // replace chunks_exact with array_chunks when it's stable. A trailing partial chunk
         // (when the index region size is not a multiple of `ENTRY_LEN`) is not a valid entry
@@ -137,7 +151,13 @@ impl TzDataIndexes {
         header: &TzDataHeader,
         index: &TzDataIndex,
     ) -> Result<Vec<u8>> {
-        reader.seek(SeekFrom::Start(index.offset as u64 + header.data_offset as u64))?;
+        let start = u64::from(index.offset) + u64::from(header.data_offset);
+        let end = start + u64::from(index.length);
+        let file_len = reader.seek(SeekFrom::End(0))?;
+        if end > file_len {
+            return Err(Error::new(ErrorKind::UnexpectedEof, "tzdata entry exceeds file length"));
+        }
+        reader.seek(SeekFrom::Start(start))?;
         let mut buffer = vec![0; index.length as usize];
         reader.read_exact(&mut buffer)?;
         Ok(buffer)
@@ -188,10 +208,42 @@ mod tests {
         data.extend_from_slice(&44u32.to_be_bytes()); // data_offset, index region = 20 bytes
         data.extend_from_slice(&100u32.to_be_bytes()); // zonetab_offset
         data.extend_from_slice(&[0u8; 20]);
-        let header = TzDataHeader::new(&mut Cursor::new(&data[..])).unwrap();
-        let indexes =
-            TzDataIndexes::new::<OHOS_ENTRY_LEN>(&mut Cursor::new(&data[24..]), &header).unwrap();
+        let mut cursor = Cursor::new(&data[..]);
+        let header = TzDataHeader::new(&mut cursor).unwrap();
+        let indexes = TzDataIndexes::new::<OHOS_ENTRY_LEN>(&mut cursor, &header).unwrap();
         assert!(indexes.indexes.is_empty());
+    }
+
+    #[test]
+    fn test_tzdata_header_oob_data_offset() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"tzdata2024a\0");
+        data.extend_from_slice(&24u32.to_be_bytes()); // index_offset
+        data.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes()); // data_offset
+        data.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes()); // zonetab_offset
+        assert_eq!(data.len(), 24);
+
+        let err = find_tz_data::<OHOS_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn test_tzdata_entry_oob_length() {
+        let data_offset = (24 + OHOS_ENTRY_LEN) as u32;
+        let mut data = Vec::new();
+        data.extend_from_slice(b"tzdata2024a\0");
+        data.extend_from_slice(&24u32.to_be_bytes()); // index_offset
+        data.extend_from_slice(&data_offset.to_be_bytes());
+        data.extend_from_slice(&data_offset.to_be_bytes()); // zonetab_offset
+
+        let mut name = [0u8; TZ_NAME_LEN];
+        name[..3].copy_from_slice(b"UTC");
+        data.extend_from_slice(&name);
+        data.extend_from_slice(&0u32.to_be_bytes()); // offset
+        data.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes()); // length
+
+        let err = find_tz_data::<OHOS_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
     }
 
     #[test]
