@@ -130,9 +130,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: nightly
-      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
-        with:
-          tool: cargo-fuzz@0.13.2
+      # Build from source instead of taiki-e/install-action: its binstall fallback
+      # ships a musl cargo-fuzz, which targets musl and breaks the sanitizer build.
+      - run: cargo install --locked cargo-fuzz@0.13.2
       - run: cargo fuzz run fuzz_tzif -- -max_total_time=60
         working-directory: fuzz
       - run: cargo fuzz run fuzz_tz_string -- -max_total_time=60
