@@ -219,6 +219,13 @@ Optional features:
 
 Note: The `rkyv{,-16,-32,-64}` features are mutually exclusive.
 
+The `rkyv*` features use rkyv 0.7, which is no longer maintained upstream and is affected by
+[RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235) (out-of-bounds reads when
+validating untrusted archives that contain `Rc`, `Arc` or weak pointers to unsized data).
+sad-chrono's archived types contain no shared pointers, but if you validate untrusted rkyv archives
+of your own types, review the advisory. sad-chrono stays on rkyv 0.7 because moving to 0.8 would
+break compatibility for existing `rkyv*` users.
+
 [serde]: https://github.com/serde-rs/serde
 [rkyv]: https://github.com/rkyv/rkyv
 

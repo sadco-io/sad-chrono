@@ -1,15 +1,9 @@
+# Cargo version updates are disabled on purpose: sad-chrono is a drop-in replacement for
+# chrono 0.4, and bumping the requirement of a public dependency (e.g. rkyv 0.7 -> 0.8,
+# windows-link 0.2 -> 0.x) can change the public API, wire formats or MSRV. Dependency
+# updates are reviewed manually; Dependabot security alerts stay enabled.
 version: 2
 updates:
-  - package-ecosystem: "cargo"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    target-branch: "main"
-  - package-ecosystem: "cargo"
-    directory: "/fuzz/"
-    schedule:
-      interval: "weekly"
-    target-branch: "main"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

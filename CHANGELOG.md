@@ -71,6 +71,17 @@ and chrono#1825.
   the start date) was omitted because it changes behavior documented in
   chrono 0.4.45 and would break callers relying on the drop-in contract.
 
+### Known issues
+
+* The `rkyv*` features use rkyv 0.7, which is no longer maintained upstream
+  and is affected by
+  [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235)
+  (out-of-bounds reads when validating untrusted archives containing `Rc`,
+  `Arc`, or weak pointers to unsized data). `sad-chrono`'s archived types
+  contain no shared pointers, and `sad-chrono` stays on rkyv 0.7 to avoid
+  breaking compatibility for existing `rkyv*` users; review the advisory if
+  you validate untrusted rkyv archives of your own types.
+
 ### Packaging and internal
 
 * Published as `sad-chrono`, with library name `sad_chrono`. To keep

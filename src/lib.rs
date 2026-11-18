@@ -61,7 +61,11 @@
 //!   using 32-bit integers for integral `*size` types.
 //! - `rkyv-64`: Enable serialization/deserialization via [rkyv],
 //!   using 64-bit integers for integral `*size` types.
-//! - `rkyv-validation`: Enable rkyv validation support using `bytecheck`.
+//! - `rkyv-validation`: Enable rkyv validation support using `bytecheck`. The `rkyv*` features
+//!   stay on unmaintained rkyv 0.7 for `0.4` compatibility and are affected by
+//!   [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235) (out-of-bounds reads
+//!   when validating untrusted `Rc`, `Arc`, or weak pointers to unsized data); sad-chrono's
+//!   archived types contain no shared pointers, so review the advisory if you validate your own.
 //! - `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 //! - `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
 //!   The implementation and API may change or even be removed in a patch release. Feedback welcome.
