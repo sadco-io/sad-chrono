@@ -2,6 +2,7 @@
 # chrono 0.4, and bumping the requirement of a public dependency (e.g. rkyv 0.7 -> 0.8,
 # windows-link 0.2 -> 0.x) can change the public API, wire formats or MSRV. Dependency
 # updates are reviewed manually; Dependabot security alerts stay enabled.
+# Workflow actions are SHA-pinned; Dependabot bumps both the commit SHAs and `# vX` comments.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
