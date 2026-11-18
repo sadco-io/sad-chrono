@@ -1,0 +1,56 @@
+name: coverage
+
+env:
+  # It's really `--all-features`, but not adding the mutually exclusive features from rkyv
+  ALL_NON_EXCLUSIVE_FEATURES: --features "default unstable-locales rkyv-64 rkyv-validation serde arbitrary"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: llvm-cov
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # nightly is required for --doctests, see cargo-llvm-cov#2. rustfmt is needed by
+      # tests/win_bindings.rs (windows-bindgen formats its output with it).
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview, rustfmt
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate code coverage
+        run: cargo +nightly llvm-cov ${{ env.ALL_NON_EXCLUSIVE_FEATURES }} --workspace --lcov --doctests --output-path lcov.info
+      # Coverage is always generated, so breakage shows up even without Codecov. The upload
+      # only runs when the CODECOV_TOKEN repository secret is set (it is never available on
+      # PRs from forks). The token is scoped to the steps that need it, not the whole job, so
+      # dependency build scripts and proc-macros never see it.
+      - name: Check for Codecov token
+        id: codecov
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          if [ -n "$CODECOV_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::CODECOV_TOKEN is not set; skipping the Codecov upload."
+          fi
+      - name: Upload coverage to Codecov
+        if: steps.codecov.outputs.enabled == 'true'
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true

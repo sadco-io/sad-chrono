@@ -4,3 +4,4 @@ Cargo.lock
 
 # for jetbrains users
 .idea/
+.env
