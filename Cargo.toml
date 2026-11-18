@@ -69,7 +69,7 @@ windows-bindgen = { version = "0.100" }                    # MSRV is 1.95 (dev-d
 wasm-bindgen-test = "0.3"
 
 [package.metadata.docs.rs]
-features = ["arbitrary", "rkyv", "serde", "unstable-locales"]
+features = ["arbitrary", "rkyv-32", "rkyv-validation", "serde", "unstable-locales"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.playground]

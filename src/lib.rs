@@ -54,22 +54,23 @@
 //! Optional features:
 //!
 //! - `serde`: Enable serialization/deserialization via [serde].
-//! - `rkyv`: Deprecated, use the `rkyv-*` features.
+//! - `rkyv`: Deprecated, use the `rkyv-*` features. Enables [rkyv] 0.8 (`pointer_width_32`) and
+//!   `bytecheck` semantic validation.
 //! - `rkyv-16`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_16`),
-//!   using 16-bit integers for integral `*size` types.
+//!   using 16-bit integers for integral `*size` types, with `bytecheck` semantic validation.
 //! - `rkyv-32`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_32`),
-//!   using 32-bit integers for integral `*size` types.
+//!   using 32-bit integers for integral `*size` types, with `bytecheck` semantic validation.
 //! - `rkyv-64`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_64`),
-//!   using 64-bit integers for integral `*size` types.
-//! - `rkyv-validation`: Enable [rkyv] 0.8 validation support using `bytecheck`, including semantic
-//!   invariant checks that reject out-of-range archived dates, times, offsets, durations, and ISO
-//!   weeks.
+//!   using 64-bit integers for integral `*size` types, with `bytecheck` semantic validation.
+//! - `rkyv-validation`: Compatibility feature that enables `rkyv/alloc` (needed for
+//!   `rkyv::to_bytes` / `rkyv::from_bytes`). Semantic `bytecheck` invariant checks (rejecting
+//!   out-of-range archived dates, times, offsets, durations, ISO weeks, and `DateTime` local-time
+//!   ranges) are always active whenever `rkyv` `CheckBytes` is enabled via any `rkyv*` feature.
 //! - `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 //! - `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
 //!   The implementation and API may change or even be removed in a patch release. Feedback welcome.
 //! - `defmt`: Implement `defmt::Format` for sad-chrono types, for embedded logging.
-//! - `core-error`: Implement `core::error::Error` for the error types without `std` (requires
-//!   Rust 1.81).
+//! - `core-error`: Implement `core::error::Error` for the error types without `std`.
 //! - `oldtime`: This feature no longer has any effect; it used to offer compatibility with the
 //!   `time` 0.1 crate.
 //!
@@ -438,8 +439,8 @@
 //!
 //! The Minimum Supported Rust Version (MSRV) is currently **Rust 1.85.0** for the `0.5.x` line.
 //!
-//! The MSRV is explicitly tested in CI. It is raised only with a changelog entry and only if a
-//! dependency's security fix requires it.
+//! The MSRV is explicitly tested in CI. Within `0.5.x`, it is raised only with a changelog entry
+//! and only if a dependency's security fix requires it.
 //!
 //! ## Relation between chrono and time 0.1
 //!
