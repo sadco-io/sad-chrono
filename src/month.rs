@@ -13,7 +13,7 @@ use crate::naive::NaiveDate;
 ///
 /// It is possible to convert from a date to a month independently
 /// ```
-/// use chrono::prelude::*;
+/// use sad_chrono::prelude::*;
 /// let date = Utc.with_ymd_and_hms(2019, 10, 28, 9, 10, 11).unwrap();
 /// // `2019-10-28T09:10:11Z`
 /// let month = Month::try_from(u8::try_from(date.month()).unwrap()).ok();
@@ -21,7 +21,7 @@ use crate::naive::NaiveDate;
 /// ```
 /// Or from a Month to an integer usable by dates
 /// ```
-/// # use chrono::prelude::*;
+/// # use sad_chrono::prelude::*;
 /// let month = Month::January;
 /// let dt = Utc.with_ymd_and_hms(2019, month.number_from_month(), 28, 9, 10, 11).unwrap();
 /// assert_eq!((dt.year(), dt.month(), dt.day()), (2019, 1, 28));
@@ -142,7 +142,7 @@ impl Month {
     /// Get the name of the month
     ///
     /// ```
-    /// use chrono::Month;
+    /// use sad_chrono::Month;
     ///
     /// assert_eq!(Month::January.name(), "January")
     /// ```

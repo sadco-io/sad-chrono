@@ -1,4 +1,20 @@
-//! # Chrono: Date and Time for Rust
+//! # sad-chrono: Date and Time for Rust
+//!
+//! `sad-chrono` is a maintained fork of [chrono] that keeps its 0.4 API stable and ships security
+//! and robustness fixes. It is maintained by the Sadco Security Team. `sad-chrono` keeps the
+//! public API of `chrono 0.4` (this release: chrono 0.4.45 plus fixes); to keep existing
+//! `chrono::` paths unchanged, rename the dependency:
+//!
+//! ```toml
+//! chrono = { package = "sad-chrono", version = "0.4.46" }
+//! ```
+//!
+//! Note that `sad_chrono` types are distinct from upstream `chrono` types: if a dependency
+//! exposes `chrono` types in its public API, replace `chrono` across the entire dependency graph
+//! (see the README's *Transitive dependencies* section). Library authors should also see the
+//! README's *For library authors* and *Stability and versioning* sections.
+//!
+//! [chrono]: https://github.com/chronotope/chrono
 //!
 //! Chrono aims to provide all functionality needed to do correct operations on dates and times in
 //! the [proleptic Gregorian calendar]:
@@ -11,8 +27,10 @@
 //! * The [`Local`] timezone works with the current timezone of the OS.
 //! * Types and operations are implemented to be reasonably efficient.
 //!
-//! Timezone data is not shipped with chrono by default to limit binary sizes. Use the companion
-//! crate [Chrono-TZ] or [`tzfile`] for full timezone support.
+//! Timezone data is not shipped with sad-chrono by default to limit binary sizes. The companion
+//! crates [Chrono-TZ] and [`tzfile`] depend on upstream `chrono` and implement *its* `TimeZone`
+//! trait, so their types cannot be used with `sad_chrono` types directly unless `chrono` is
+//! replaced across the entire dependency graph (see the README's *Transitive dependencies* section).
 //!
 //! [proleptic Gregorian calendar]: https://en.wikipedia.org/wiki/Proleptic_Gregorian_calendar
 //! [Chrono-TZ]: https://crates.io/crates/chrono-tz
@@ -30,7 +48,8 @@
 //!   `alloc` and adds interoperation with standard library types and traits.
 //! - `clock`: Enables reading the local timezone (`Local`). This is a superset of `now`.
 //! - `now`: Enables reading the system time (`now`).
-//! - `wasmbind`: Interface with the JS Date API for the `wasm32` target.
+//! - `wasmbind`: Interface with the JS Date API on wasm targets (`target_family = "wasm"`,
+//!   excluding Emscripten and WASI).
 //!
 //! Optional features:
 //!
@@ -42,10 +61,17 @@
 //!   using 32-bit integers for integral `*size` types.
 //! - `rkyv-64`: Enable serialization/deserialization via [rkyv],
 //!   using 64-bit integers for integral `*size` types.
-//! - `rkyv-validation`: Enable rkyv validation support using `bytecheck`.
+//! - `rkyv-validation`: Enable rkyv validation support using `bytecheck`. The `rkyv*` features
+//!   stay on unmaintained rkyv 0.7 for `0.4` compatibility and are affected by
+//!   [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235) (out-of-bounds reads
+//!   when validating untrusted `Rc`, `Arc`, or weak pointers to unsized data); sad-chrono's
+//!   archived types contain no shared pointers, so review the advisory if you validate your own.
 //! - `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 //! - `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
 //!   The implementation and API may change or even be removed in a patch release. Feedback welcome.
+//! - `defmt`: Implement `defmt::Format` for sad-chrono types, for embedded logging.
+//! - `core-error`: Implement `core::error::Error` for the error types without `std` (requires
+//!   Rust 1.81).
 //! - `oldtime`: This feature no longer has any effect; it used to offer compatibility with the
 //!   `time` 0.1 crate.
 //!
@@ -103,7 +129,7 @@
 //!
 //! ```
 //! # #[cfg(feature = "now")] {
-//! use chrono::prelude::*;
+//! use sad_chrono::prelude::*;
 //!
 //! let utc: DateTime<Utc> = Utc::now(); // e.g. `2014-11-28T12:45:59.324310806Z`
 //! # let _ = utc;
@@ -112,7 +138,7 @@
 //!
 //! ```
 //! # #[cfg(feature = "clock")] {
-//! use chrono::prelude::*;
+//! use sad_chrono::prelude::*;
 //!
 //! let local: DateTime<Local> = Local::now(); // e.g. `2014-11-28T21:45:59.324310806+09:00`
 //! # let _ = local;
@@ -124,8 +150,8 @@
 //! methods.
 //!
 //! ```
-//! use chrono::offset::MappedLocalTime;
-//! use chrono::prelude::*;
+//! use sad_chrono::offset::MappedLocalTime;
+//! use sad_chrono::prelude::*;
 //!
 //! # fn doctest() -> Option<()> {
 //!
@@ -202,8 +228,8 @@
 //! The following illustrates most supported operations to the date and time:
 //!
 //! ```rust
-//! use chrono::prelude::*;
-//! use chrono::TimeDelta;
+//! use sad_chrono::prelude::*;
+//! use sad_chrono::TimeDelta;
 //!
 //! // assume this returned `2014-11-28T21:45:59.324310806+09:00`:
 //! let dt = FixedOffset::east_opt(9 * 3600)
@@ -275,14 +301,14 @@
 //! additional C library. This functionality is under the feature `unstable-locales`:
 //!
 //! ```toml
-//! chrono = { version = "0.4", features = ["unstable-locales"] }
+//! sad-chrono = { version = "0.4.46", features = ["unstable-locales"] }
 //! ```
 //!
 //! The `unstable-locales` feature requires and implies at least the `alloc` feature.
 //!
 //! ```rust
 //! # #[allow(unused_imports)]
-//! use chrono::prelude::*;
+//! use sad_chrono::prelude::*;
 //!
 //! # #[cfg(all(feature = "unstable-locales", feature = "alloc"))]
 //! # fn test() {
@@ -331,7 +357,7 @@
 //! More detailed control over the parsing process is available via [`format`](mod@format) module.
 //!
 //! ```rust
-//! use chrono::prelude::*;
+//! use sad_chrono::prelude::*;
 //!
 //! let dt = Utc.with_ymd_and_hms(2014, 11, 28, 12, 0, 9).unwrap();
 //! let fixed_dt = dt.with_timezone(&FixedOffset::east_opt(9 * 3600).unwrap());
@@ -377,7 +403,7 @@
 //! ```
 //! # #[cfg(feature = "alloc")] {
 //! // We need the trait in scope to use Utc::timestamp().
-//! use chrono::{DateTime, Utc};
+//! use sad_chrono::{DateTime, Utc};
 //!
 //! // Construct a datetime from epoch:
 //! let dt: DateTime<Utc> = DateTime::from_timestamp_secs(1_500_000_000).unwrap();
@@ -412,10 +438,10 @@
 //!
 //! ## Rust version requirements
 //!
-//! The Minimum Supported Rust Version (MSRV) is currently **Rust 1.61.0**.
+//! The Minimum Supported Rust Version (MSRV) is currently **Rust 1.62.0**.
 //!
-//! The MSRV is explicitly tested in CI. It may be bumped in minor releases, but this is not done
-//! lightly.
+//! The MSRV is explicitly tested in CI. It is raised only in a release whose changelog says so,
+//! and never above the MSRV of the latest upstream chrono 0.4 release.
 //!
 //! ## Relation between chrono and time 0.1
 //!
@@ -500,7 +526,7 @@
 //!
 //! [chrono#1095]: https://github.com/chronotope/chrono/pull/1095
 
-#![doc(html_root_url = "https://docs.rs/chrono/latest/", test(attr(deny(warnings))))]
+#![doc(html_root_url = "https://docs.rs/sad-chrono/latest/", test(attr(deny(warnings))))]
 #![warn(unreachable_pub)]
 #![warn(clippy::tests_outside_test_module)]
 #![cfg_attr(not(any(feature = "std", test)), no_std)]
@@ -520,7 +546,7 @@ pub type Duration = TimeDelta;
 
 use core::fmt;
 
-/// A convenience module appropriate for glob imports (`use chrono::prelude::*;`).
+/// A convenience module appropriate for glob imports (`use sad_chrono::prelude::*;`).
 pub mod prelude {
     #[allow(deprecated)]
     pub use crate::Date;

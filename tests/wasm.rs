@@ -12,7 +12,7 @@
     not(any(target_os = "emscripten", target_os = "wasi"))
 ))]
 
-use chrono::prelude::*;
+use sad_chrono::prelude::*;
 use wasm_bindgen_test::*;
 
 #[wasm_bindgen_test]
@@ -25,7 +25,7 @@ fn now() {
     let actual = NaiveDateTime::parse_from_str(&now, "%s").unwrap().and_utc();
     let diff = utc - actual;
     assert!(
-        diff < chrono::TimeDelta::try_minutes(5).unwrap(),
+        diff < sad_chrono::TimeDelta::try_minutes(5).unwrap(),
         "expected {} - {} == {} < 5m (env var: {})",
         utc,
         actual,

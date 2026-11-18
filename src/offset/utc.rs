@@ -33,7 +33,7 @@ use crate::{Date, DateTime};
 /// # Example
 ///
 /// ```
-/// use chrono::{DateTime, TimeZone, Utc};
+/// use sad_chrono::{DateTime, TimeZone, Utc};
 ///
 /// let dt = DateTime::from_timestamp(61, 0).unwrap();
 ///
@@ -75,7 +75,7 @@ impl Utc {
     ///
     /// ```
     /// # #![allow(unused_variables)]
-    /// # use chrono::{FixedOffset, Utc};
+    /// # use sad_chrono::{FixedOffset, Utc};
     /// // Current time in UTC
     /// let now_utc = Utc::now();
     ///

@@ -853,6 +853,11 @@ mod tests {
         assert!(TransitionRule::from_tz_string(b"FOO24", false).is_err());
         assert!(TransitionRule::from_tz_string(b"FOO+24", false).is_err());
         assert!(TransitionRule::from_tz_string(b"FOO-24", false).is_err());
+        // Implicit DST offset (`std_offset - 3600`) reaching ±24h must also be rejected.
+        assert!(matches!(
+            TransitionRule::from_tz_string(b"AAA-23BBB,J1,J365", false),
+            Err(Error::LocalTimeType(_))
+        ));
         // The maximum valid offset is 23:59:59.
         assert!(TransitionRule::from_tz_string(b"FOO23:59:59", false).is_ok());
     }

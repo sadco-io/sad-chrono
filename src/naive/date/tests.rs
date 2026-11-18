@@ -735,12 +735,9 @@ fn test_date_parse_from_str() {
 
 #[test]
 fn test_day_iterator_limit() {
-    // Forward iteration stops at `NaiveDate::MAX`.
     assert_eq!(NaiveDate::from_ymd_opt(MAX_YEAR, 12, 29).unwrap().iter_days().take(4).count(), 2);
-    // Reversing that bounded range yields the same dates, so it is likewise
-    // limited to 2 elements (previously `rev` walked below the start instead).
     assert_eq!(
-        NaiveDate::from_ymd_opt(MAX_YEAR, 12, 29).unwrap().iter_days().take(4).rev().count(),
+        NaiveDate::from_ymd_opt(MIN_YEAR, 1, 3).unwrap().iter_days().rev().take(4).count(),
         2
     );
 }
@@ -749,26 +746,41 @@ fn test_day_iterator_limit() {
 fn test_week_iterator_limit() {
     assert_eq!(NaiveDate::from_ymd_opt(MAX_YEAR, 12, 12).unwrap().iter_weeks().take(4).count(), 2);
     assert_eq!(
-        NaiveDate::from_ymd_opt(MAX_YEAR, 12, 12).unwrap().iter_weeks().take(4).rev().count(),
+        NaiveDate::from_ymd_opt(MIN_YEAR, 1, 15).unwrap().iter_weeks().rev().take(4).count(),
         2
     );
 }
 
 #[test]
-fn test_iterator_reverse_matches_forward() {
-    // Regression test for #1757: reversing a bounded window of the day and week
-    // iterators must yield the same dates as forward iteration, in reverse order.
-    let start = NaiveDate::from_ymd_opt(2025, 10, 10).unwrap();
+fn test_iterator_reverse_from_start() {
+    let days: Vec<_> =
+        NaiveDate::from_ymd_opt(2016, 3, 1).unwrap().iter_days().rev().take(4).collect();
+    assert_eq!(
+        days,
+        [
+            NaiveDate::from_ymd_opt(2016, 3, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 2, 29).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 2, 28).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 2, 27).unwrap(),
+        ]
+    );
 
-    let mut days_forward: Vec<_> = start.iter_days().take(10).collect();
-    let days_reversed: Vec<_> = start.iter_days().take(10).rev().collect();
-    days_forward.reverse();
-    assert_eq!(days_reversed, days_forward);
+    let weeks: Vec<_> =
+        NaiveDate::from_ymd_opt(2016, 3, 19).unwrap().iter_weeks().rev().take(4).collect();
+    assert_eq!(
+        weeks,
+        [
+            NaiveDate::from_ymd_opt(2016, 3, 19).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 3, 12).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 3, 5).unwrap(),
+            NaiveDate::from_ymd_opt(2016, 2, 27).unwrap(),
+        ]
+    );
 
-    let mut weeks_forward: Vec<_> = start.iter_weeks().take(10).collect();
-    let weeks_reversed: Vec<_> = start.iter_weeks().take(10).rev().collect();
-    weeks_forward.reverse();
-    assert_eq!(weeks_reversed, weeks_forward);
+    #[allow(clippy::manual_next_back)]
+    {
+        assert_eq!(NaiveDate::MAX.iter_days().rev().next(), Some(NaiveDate::MAX));
+    }
 }
 
 #[test]

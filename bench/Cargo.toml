@@ -12,7 +12,7 @@ publish = false
 unstable-locales = ["chrono/unstable-locales"]
 
 [dependencies]
-chrono = { path = "..", features = ["__internal_bench", "serde"] }
+chrono = { package = "sad-chrono", path = "..", features = ["__internal_bench", "serde"] }
 
 [[bench]]
 name = "chrono"

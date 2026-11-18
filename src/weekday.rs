@@ -13,7 +13,7 @@ use crate::OutOfRange;
 ///
 /// # Example
 /// ```
-/// use chrono::Weekday;
+/// use sad_chrono::Weekday;
 ///
 /// let monday = "Monday".parse::<Weekday>().unwrap();
 /// assert_eq!(monday, Weekday::Mon);
@@ -125,7 +125,7 @@ impl Weekday {
     ///
     /// ```
     /// # #[cfg(feature = "clock")] {
-    /// # use chrono::{Local, Datelike};
+    /// # use sad_chrono::{Local, Datelike};
     /// // MTWRFSU is occasionally used as a single-letter abbreviation of the weekdays.
     /// // Use `num_days_from_monday` to index into the array.
     /// const MTWRFSU: [char; 7] = ['M', 'T', 'W', 'R', 'F', 'S', 'U'];
@@ -154,7 +154,7 @@ impl Weekday {
     /// # Examples
     ///
     /// ```
-    /// use chrono::Weekday::*;
+    /// use sad_chrono::Weekday::*;
     /// assert_eq!(Mon.days_since(Mon), 0);
     /// assert_eq!(Sun.days_since(Tue), 5);
     /// assert_eq!(Wed.days_since(Sun), 3);

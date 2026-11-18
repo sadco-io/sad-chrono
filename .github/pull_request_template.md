@@ -1,6 +1,9 @@
-### Thanks for contributing to chrono!
+### Thanks for contributing to sad-chrono!
 
-If your feature is semver-compatible, please target the main branch;
-for semver-incompatible changes, please target the `0.5.x` branch.
+`sad-chrono` keeps the chrono 0.4 API stable. Please avoid semver-incompatible changes, and call out
+any change in behavior (for example, a panic becoming an error) in the description.
+
+If the change is a backport of an upstream chrono PR, link it and keep the original author on the
+commit (`git cherry-pick -x`).
 
 Please consider adding a test to ensure your bug fix/feature will not break in the future.

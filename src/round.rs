@@ -21,7 +21,7 @@ pub trait SubsecRound {
     ///
     /// # Example
     /// ``` rust
-    /// # use chrono::{SubsecRound, Timelike, NaiveDate};
+    /// # use sad_chrono::{SubsecRound, Timelike, NaiveDate};
     /// let dt = NaiveDate::from_ymd_opt(2018, 1, 11)
     ///     .unwrap()
     ///     .and_hms_milli_opt(12, 0, 0, 154)
@@ -37,7 +37,7 @@ pub trait SubsecRound {
     ///
     /// # Example
     /// ``` rust
-    /// # use chrono::{SubsecRound, Timelike, NaiveDate};
+    /// # use sad_chrono::{SubsecRound, Timelike, NaiveDate};
     /// let dt = NaiveDate::from_ymd_opt(2018, 1, 11)
     ///     .unwrap()
     ///     .and_hms_milli_opt(12, 0, 0, 154)
@@ -120,7 +120,7 @@ pub trait DurationRound: Sized {
     ///
     /// # Example
     /// ``` rust
-    /// # use chrono::{DurationRound, TimeDelta, NaiveDate};
+    /// # use sad_chrono::{DurationRound, TimeDelta, NaiveDate};
     /// let dt = NaiveDate::from_ymd_opt(2018, 1, 11)
     ///     .unwrap()
     ///     .and_hms_milli_opt(12, 0, 0, 154)
@@ -141,7 +141,7 @@ pub trait DurationRound: Sized {
     ///
     /// # Example
     /// ``` rust
-    /// # use chrono::{DurationRound, TimeDelta, NaiveDate};
+    /// # use sad_chrono::{DurationRound, TimeDelta, NaiveDate};
     /// let dt = NaiveDate::from_ymd_opt(2018, 1, 11)
     ///     .unwrap()
     ///     .and_hms_milli_opt(12, 0, 0, 154)
@@ -162,7 +162,7 @@ pub trait DurationRound: Sized {
     ///
     /// # Example
     /// ``` rust
-    /// # use chrono::{DurationRound, TimeDelta, NaiveDate};
+    /// # use sad_chrono::{DurationRound, TimeDelta, NaiveDate};
     /// let dt = NaiveDate::from_ymd_opt(2018, 1, 11)
     ///     .unwrap()
     ///     .and_hms_milli_opt(12, 0, 0, 154)
@@ -315,7 +315,7 @@ pub enum RoundingError {
     /// Error when `TimeDelta.num_nanoseconds` exceeds the limit.
     ///
     /// ``` rust
-    /// # use chrono::{DurationRound, TimeDelta, RoundingError, NaiveDate};
+    /// # use sad_chrono::{DurationRound, TimeDelta, RoundingError, NaiveDate};
     /// let dt = NaiveDate::from_ymd_opt(2260, 12, 31)
     ///     .unwrap()
     ///     .and_hms_nano_opt(23, 59, 59, 1_75_500_000)
@@ -332,7 +332,7 @@ pub enum RoundingError {
     /// Error when `DateTime.timestamp_nanos` exceeds the limit.
     ///
     /// ``` rust
-    /// # use chrono::{DurationRound, TimeDelta, RoundingError, TimeZone, Utc};
+    /// # use sad_chrono::{DurationRound, TimeDelta, RoundingError, TimeZone, Utc};
     /// let dt = Utc.with_ymd_and_hms(2300, 12, 12, 0, 0, 0).unwrap();
     ///
     /// assert_eq!(

@@ -459,7 +459,7 @@ pub trait TimeZone: Sized + Clone {
     /// # Example
     ///
     /// ```
-    /// use chrono::{TimeZone, Utc};
+    /// use sad_chrono::{TimeZone, Utc};
     ///
     /// assert_eq!(Utc.timestamp_opt(1431648000, 0).unwrap().to_string(), "2015-05-15 00:00:00 UTC");
     /// ```
@@ -491,7 +491,7 @@ pub trait TimeZone: Sized + Clone {
     /// # Example
     ///
     /// ```
-    /// use chrono::{MappedLocalTime, TimeZone, Utc};
+    /// use sad_chrono::{MappedLocalTime, TimeZone, Utc};
     /// match Utc.timestamp_millis_opt(1431648000) {
     ///     MappedLocalTime::Single(dt) => assert_eq!(dt.timestamp(), 1431648),
     ///     _ => panic!("Incorrect timestamp_millis"),
@@ -512,7 +512,7 @@ pub trait TimeZone: Sized + Clone {
     /// # Example
     ///
     /// ```
-    /// use chrono::{TimeZone, Utc};
+    /// use sad_chrono::{TimeZone, Utc};
     ///
     /// assert_eq!(Utc.timestamp_nanos(1431648000000000).timestamp(), 1431648);
     /// ```
@@ -526,7 +526,7 @@ pub trait TimeZone: Sized + Clone {
     /// # Example
     ///
     /// ```
-    /// use chrono::{TimeZone, Utc};
+    /// use sad_chrono::{TimeZone, Utc};
     ///
     /// assert_eq!(Utc.timestamp_micros(1431648000000).unwrap().timestamp(), 1431648);
     /// ```

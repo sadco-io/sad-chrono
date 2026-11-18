@@ -51,7 +51,7 @@ impl FixedOffset {
     ///
     /// ```
     /// # #[cfg(feature = "alloc")] {
-    /// use chrono::{FixedOffset, TimeZone};
+    /// use sad_chrono::{FixedOffset, TimeZone};
     /// let hour = 3600;
     /// let datetime =
     ///     FixedOffset::east_opt(5 * hour).unwrap().with_ymd_and_hms(2016, 11, 08, 0, 0, 0).unwrap();
@@ -86,7 +86,7 @@ impl FixedOffset {
     ///
     /// ```
     /// # #[cfg(feature = "alloc")] {
-    /// use chrono::{FixedOffset, TimeZone};
+    /// use sad_chrono::{FixedOffset, TimeZone};
     /// let hour = 3600;
     /// let datetime =
     ///     FixedOffset::west_opt(5 * hour).unwrap().with_ymd_and_hms(2016, 11, 08, 0, 0, 0).unwrap();
@@ -196,7 +196,7 @@ impl arbitrary::Arbitrary<'_> for FixedOffset {
     fn arbitrary(u: &mut arbitrary::Unstructured) -> arbitrary::Result<FixedOffset> {
         let secs = u.int_in_range(-86_399..=86_399)?;
         let fixed_offset = FixedOffset::east_opt(secs)
-            .expect("Could not generate a valid chrono::FixedOffset. It looks like implementation of Arbitrary for FixedOffset is erroneous.");
+            .expect("Could not generate a valid sad_chrono::FixedOffset. It looks like implementation of Arbitrary for FixedOffset is erroneous.");
         Ok(fixed_offset)
     }
 }
