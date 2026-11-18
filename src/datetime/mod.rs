@@ -1892,15 +1892,15 @@ mod verify {
     use core::{error::Error, fmt};
 
     use rkyv::{
-        Archive,
+        Archive, Deserialize,
         api::low::deserialize,
         bytecheck::Verify,
-        rancor::{Failure, Fallible, Source, fail},
+        rancor::{Failure, Fallible, Source, Strategy, fail},
     };
 
     use super::ArchivedDateTime;
     use crate::NaiveDateTime;
-    use crate::offset::{ArchivedOffsetSecs, FixedOffset, TimeZone};
+    use crate::offset::{Offset, TimeZone};
 
     #[derive(Debug)]
     struct InvalidDateTimeError;
@@ -1917,16 +1917,17 @@ mod verify {
     where
         C::Error: Source,
         Tz::Offset: Archive,
-        <Tz::Offset as Archive>::Archived: ArchivedOffsetSecs,
+        <Tz::Offset as Archive>::Archived: Deserialize<Tz::Offset, Strategy<(), Failure>>,
     {
         fn verify(&self, _: &mut C) -> Result<(), C::Error> {
             let Ok(utc) = deserialize::<NaiveDateTime, Failure>(&self.datetime) else {
                 fail!(InvalidDateTimeError);
             };
-            let Some(offset) = FixedOffset::east_opt(self.offset.local_minus_utc()) else {
+            let Ok(off) = deserialize::<Tz::Offset, Failure>(&self.offset) else {
                 fail!(InvalidDateTimeError);
             };
-            if utc.checked_add_offset(offset).is_none() {
+            let fixed = off.fix();
+            if utc.checked_add_offset(fixed).is_none() {
                 fail!(InvalidDateTimeError);
             }
             Ok(())

@@ -37,17 +37,6 @@ pub use self::local::Local;
 pub(crate) mod utc;
 pub use self::utc::Utc;
 
-#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
-mod verify_seal {
-    pub(crate) trait Sealed {}
-}
-
-/// Crate-private helper for reading the UTC offset seconds of an archived timezone offset.
-#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
-pub(crate) trait ArchivedOffsetSecs: verify_seal::Sealed {
-    fn local_minus_utc(&self) -> i32;
-}
-
 /// The result of mapping a local time to a concrete instant in a given time zone.
 ///
 /// The calculation to go from a local time (wall clock time) to an instant in UTC can end up in

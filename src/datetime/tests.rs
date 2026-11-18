@@ -2110,3 +2110,74 @@ fn test_rkyv_validation() {
         assert!(rkyv::from_bytes::<DateTime<Local>, rkyv::rancor::Error>(&bytes).is_err());
     }
 }
+
+#[test]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+fn test_rkyv_custom_timezone_validation() {
+    #[derive(Clone, Debug, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+    struct CustomOffset {
+        secs: i32,
+    }
+
+    impl crate::offset::Offset for CustomOffset {
+        fn fix(&self) -> FixedOffset {
+            FixedOffset::east_opt(self.secs).unwrap()
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct CustomTz {
+        secs: i32,
+    }
+
+    impl TimeZone for CustomTz {
+        type Offset = CustomOffset;
+
+        fn from_offset(offset: &Self::Offset) -> Self {
+            Self { secs: offset.secs }
+        }
+
+        fn offset_from_local_date(
+            &self,
+            _local: &NaiveDate,
+        ) -> crate::MappedLocalTime<Self::Offset> {
+            crate::MappedLocalTime::Single(CustomOffset { secs: self.secs })
+        }
+
+        fn offset_from_local_datetime(
+            &self,
+            _local: &NaiveDateTime,
+        ) -> crate::MappedLocalTime<Self::Offset> {
+            crate::MappedLocalTime::Single(CustomOffset { secs: self.secs })
+        }
+
+        fn offset_from_utc_date(&self, _utc: &NaiveDate) -> Self::Offset {
+            CustomOffset { secs: self.secs }
+        }
+
+        fn offset_from_utc_datetime(&self, _utc: &NaiveDateTime) -> Self::Offset {
+            CustomOffset { secs: self.secs }
+        }
+    }
+
+    let valid = CustomTz { secs: 3600 }.with_ymd_and_hms(2024, 2, 29, 12, 34, 56).unwrap();
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&valid).unwrap();
+    assert_eq!(rkyv::from_bytes::<DateTime<CustomTz>, rkyv::rancor::Error>(&bytes).unwrap(), valid);
+
+    for out_of_range in [
+        DateTime::<CustomTz>::from_naive_utc_and_offset(
+            NaiveDateTime::MAX,
+            CustomOffset { secs: 3600 },
+        ),
+        DateTime::<CustomTz>::from_naive_utc_and_offset(
+            NaiveDateTime::MIN,
+            CustomOffset { secs: -3600 },
+        ),
+    ] {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&out_of_range).unwrap();
+        assert!(rkyv::from_bytes::<DateTime<CustomTz>, rkyv::rancor::Error>(&bytes).is_err());
+    }
+}

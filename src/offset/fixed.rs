@@ -204,16 +204,6 @@ impl arbitrary::Arbitrary<'_> for FixedOffset {
 }
 
 #[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
-impl super::verify_seal::Sealed for ArchivedFixedOffset {}
-
-#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
-impl super::ArchivedOffsetSecs for ArchivedFixedOffset {
-    fn local_minus_utc(&self) -> i32 {
-        self.local_minus_utc.to_native()
-    }
-}
-
-#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
 mod verify {
     use core::{error::Error, fmt};
 

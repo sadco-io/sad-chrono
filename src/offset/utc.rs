@@ -155,13 +155,3 @@ impl defmt::Format for Utc {
         defmt::write!(fmt, "Z");
     }
 }
-
-#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
-impl super::verify_seal::Sealed for ArchivedUtc {}
-
-#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
-impl super::ArchivedOffsetSecs for ArchivedUtc {
-    fn local_minus_utc(&self) -> i32 {
-        0
-    }
-}
