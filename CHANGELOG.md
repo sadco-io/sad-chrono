@@ -10,6 +10,79 @@ earlier ones further down this file.
 Entries reference the upstream chrono pull request or issue each change came
 from, as `chrono#NNNN`.
 
+## sad-chrono 0.5.0
+
+`sad-chrono 0.5.0` preserves chrono 0.4's public API, feature names, and serde
+wire formats while moving to current dependencies (`rkyv` 0.8.18,
+`windows-link` 0.100, `defmt` 1.2) and raising the MSRV to Rust 1.85.0. It
+also adds semantic validation invariants under `rkyv-validation`, bounds
+Android/OpenHarmony `tzdata` allocations by file length, and makes
+`From<DateTime<Tz>> for SystemTime` saturate instead of panicking.
+
+### Breaking changes
+
+* MSRV raised from Rust 1.62.0 to Rust 1.85.0.
+* `rkyv*` features upgraded from `rkyv` 0.7 to `rkyv` 0.8 (`0.8.18`), which
+  changes trait implementations and the archive binary format; stored archives
+  must be re-archived. Feature names are unchanged, with `rkyv-16`, `rkyv-32`,
+  and `rkyv-64` mapping to `rkyv`'s `pointer_width_*` features.
+* `From<DateTime<Tz>> for SystemTime` now saturates to the platform's nearest
+  representable `SystemTime` instead of panicking on out-of-range dates
+  (behavior change).
+
+### Security and robustness
+
+* Upgrade `rkyv` to `0.8.18`, resolving
+  [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235).
+* Enforce semantic invariant checks under `rkyv-validation` (`bytecheck::Verify`)
+  for `NaiveDate`, `NaiveTime`, `FixedOffset`, `TimeDelta`, and `IsoWeek`
+  (alongside discriminant checks for `Month` and `Weekday`), so `rkyv::access`
+  and `rkyv::from_bytes` reject out-of-range or inconsistent archived values
+  instead of panicking on subsequent use.
+* Bound Android and OpenHarmony `tzdata` header and index-entry allocations
+  against the underlying file length (`SeekFrom::End(0)`) before allocating,
+  rejecting oversized lengths up to 4 GiB (`0xFFFF_FFFF`) with `UnexpectedEof`
+  or `InvalidData`.
+* Saturate `From<DateTime<Tz>> for SystemTime` using `checked_add` /
+  `checked_sub` and binary search on platforms with narrower `SystemTime`
+  bounds (such as Windows or `wasm32-unknown-unknown`) instead of panicking,
+  and normalize leap seconds before inverting pre-epoch offsets.
+* Document `# Panics` sections with pre-validation doctests (using
+  `StrftimeItems::new(fmt).parse()`) on `DateTime::format`,
+  `NaiveDateTime::format`, `NaiveDate::format`, and `NaiveTime::format`.
+* Upgrade `defmt` to `1.2`, removing the unmaintained `proc-macro-error2`
+  transitive dependency
+  ([RUSTSEC-2026-0173](https://rustsec.org/advisories/RUSTSEC-2026-0173)).
+
+### Dependencies
+
+* `rkyv` `0.7.43` -> `0.8.18`; the `rkyv` 0.8 port is from upstream PR
+  chrono#1779, by Yuriy Yarosh, closed unmerged upstream.
+* `windows-link` `0.2` -> `0.100` with regenerated
+  `src/offset/local/win_bindings.rs`, and `windows-bindgen` -> `0.100`
+  (dev-dependency).
+* `defmt` `1.0.1` -> `1.2`.
+* Replace unmaintained `bincode` `1.3.0`
+  ([RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141)) with
+  `postcard` `1` (`alloc`) in `dev-dependencies`.
+* `criterion` `0.5.0` -> `0.8` in `bench/Cargo.toml` (switching
+  `criterion::black_box` calls to `std::hint::black_box`).
+
+### Testing and CI
+
+* Add serde `0.4.46` (JSON and `postcard`) and `rkyv` `0.5.0` (`rkyv-32` +
+  `rkyv-validation`) golden format tests in `tests/format_golden.rs`.
+* Add an internal `__internal_fuzz` harness exposing `fuzz_tzif` and
+  `fuzz_tz_string` targets alongside `fuzz_reader` and `fuzz_format`, and run
+  all four targets in a new `fuzz` job in `lint.yml`.
+* Pin all GitHub Actions `uses:` references to full commit SHAs, clear
+  `deny.toml` advisory ignores, run `semver` directly against the published
+  `sad-chrono` crate, and add Codecov coverage reporting (`coverage.yml`).
+
+### Migration
+
+* See [Migrating from 0.4.46](README.md#migrating-from-0446) in the README.
+
 ## sad-chrono 0.4.46
 
 First release of `sad-chrono`. It is API-compatible with chrono 0.4.45 and

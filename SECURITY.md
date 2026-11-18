@@ -2,7 +2,11 @@
 
 ## Supported Versions
 
-Security updates are applied only to the most recent release.
+| Version | Supported | Notes |
+|---------|-----------|-------|
+| `0.5.x` | All fixes | Current release line |
+| `0.4.x` | Security fixes only | Maintained on the `0.4.x` branch |
+| `< 0.4.46` | No | Upgrade to `0.5.x` or `0.4.x` |
 
 ## Scope
 

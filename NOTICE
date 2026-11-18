@@ -33,6 +33,17 @@ This fork includes the following changes relative to chrono 0.4.45:
   From<SystemTime> for DateTime<Utc>
 - The crate is published as `sad-chrono` (library `sad_chrono`)
 
+In `sad-chrono` 0.5.0, the following additional modifications were made:
+
+- Ported `rkyv` support to `rkyv` 0.8 from upstream PR chrono#1779 by
+  Yuriy Yarosh (closed unmerged upstream), updated to `rkyv` 0.8.18
+- Updated `windows-link` to 0.100 (with regenerated Windows bindings) and
+  `defmt` to 1.2, and raised the MSRV to Rust 1.85.0
+- Security and robustness fixes by the Sadco Security Team: semantic
+  invariant validation under `rkyv-validation`, file-length allocation
+  bounds for Android/OpenHarmony `tzdata`, and saturating
+  `From<DateTime<Tz>> for SystemTime` conversion
+
 The upstream fixes listed above were written by their upstream authors;
 see CHANGELOG.md for attribution of each change. The packaging changes
 and the Sadco Security Team fixes listed above were developed by the

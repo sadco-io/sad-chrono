@@ -2,11 +2,11 @@
 //!
 //! `sad-chrono` is a maintained fork of [chrono] that keeps its 0.4 API stable and ships security
 //! and robustness fixes. It is maintained by the Sadco Security Team. `sad-chrono` keeps the
-//! public API of `chrono 0.4` (this release: chrono 0.4.45 plus fixes); to keep existing
-//! `chrono::` paths unchanged, rename the dependency:
+//! public API of `chrono 0.4` (this release: `chrono 0.4.45` API with `0.5` dependency updates
+//! and fixes); to keep existing `chrono::` paths unchanged, rename the dependency:
 //!
 //! ```toml
-//! chrono = { package = "sad-chrono", version = "0.4.46" }
+//! chrono = { package = "sad-chrono", version = "0.5" }
 //! ```
 //!
 //! Note that `sad_chrono` types are distinct from upstream `chrono` types: if a dependency
@@ -55,17 +55,15 @@
 //!
 //! - `serde`: Enable serialization/deserialization via [serde].
 //! - `rkyv`: Deprecated, use the `rkyv-*` features.
-//! - `rkyv-16`: Enable serialization/deserialization via [rkyv],
+//! - `rkyv-16`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_16`),
 //!   using 16-bit integers for integral `*size` types.
-//! - `rkyv-32`: Enable serialization/deserialization via [rkyv],
+//! - `rkyv-32`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_32`),
 //!   using 32-bit integers for integral `*size` types.
-//! - `rkyv-64`: Enable serialization/deserialization via [rkyv],
+//! - `rkyv-64`: Enable serialization/deserialization via [rkyv] 0.8 (`pointer_width_64`),
 //!   using 64-bit integers for integral `*size` types.
-//! - `rkyv-validation`: Enable rkyv validation support using `bytecheck`. The `rkyv*` features
-//!   stay on unmaintained rkyv 0.7 for `0.4` compatibility and are affected by
-//!   [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235) (out-of-bounds reads
-//!   when validating untrusted `Rc`, `Arc`, or weak pointers to unsized data); sad-chrono's
-//!   archived types contain no shared pointers, so review the advisory if you validate your own.
+//! - `rkyv-validation`: Enable [rkyv] 0.8 validation support using `bytecheck`, including semantic
+//!   invariant checks that reject out-of-range archived dates, times, offsets, durations, and ISO
+//!   weeks.
 //! - `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 //! - `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
 //!   The implementation and API may change or even be removed in a patch release. Feedback welcome.
@@ -301,7 +299,7 @@
 //! additional C library. This functionality is under the feature `unstable-locales`:
 //!
 //! ```toml
-//! sad-chrono = { version = "0.4.46", features = ["unstable-locales"] }
+//! sad-chrono = { version = "0.5", features = ["unstable-locales"] }
 //! ```
 //!
 //! The `unstable-locales` feature requires and implies at least the `alloc` feature.
@@ -438,10 +436,10 @@
 //!
 //! ## Rust version requirements
 //!
-//! The Minimum Supported Rust Version (MSRV) is currently **Rust 1.62.0**.
+//! The Minimum Supported Rust Version (MSRV) is currently **Rust 1.85.0** for the `0.5.x` line.
 //!
-//! The MSRV is explicitly tested in CI. It is raised only in a release whose changelog says so,
-//! and never above the MSRV of the latest upstream chrono 0.4 release.
+//! The MSRV is explicitly tested in CI. It is raised only with a changelog entry and only if a
+//! dependency's security fix requires it.
 //!
 //! ## Relation between chrono and time 0.1
 //!
