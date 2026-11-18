@@ -393,7 +393,10 @@ fn test_and_timezone_min_max_dates() {
 }
 
 #[test]
-#[cfg(feature = "rkyv-validation")]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
 fn test_rkyv_validation() {
     let dt_min = NaiveDateTime::MIN;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&dt_min).unwrap();
@@ -402,4 +405,19 @@ fn test_rkyv_validation() {
     let dt_max = NaiveDateTime::MAX;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&dt_max).unwrap();
     assert_eq!(rkyv::from_bytes::<NaiveDateTime, rkyv::rancor::Error>(&bytes).unwrap(), dt_max);
+
+    // ArchivedNaiveDateTime is #[repr(C)] { date: ArchivedNaiveDate (0..4), time: ArchivedNaiveTime (4..12) }.
+    let date_offset = core::mem::offset_of!(super::ArchivedNaiveDateTime, date);
+    let time_offset = core::mem::offset_of!(super::ArchivedNaiveDateTime, time);
+
+    let mut bad_date = bytes.clone();
+    let bad_yof =
+        (2024 << 13) | (511 << 4) | (crate::naive::internals::YearFlags::from_year(2024).0 as i32);
+    bad_date[date_offset..date_offset + 4].copy_from_slice(&bad_yof.to_le_bytes());
+    assert!(rkyv::from_bytes::<NaiveDateTime, rkyv::rancor::Error>(&bad_date).is_err());
+
+    let mut bad_time = bytes;
+    // secs is the first 4 bytes of ArchivedNaiveTime.
+    bad_time[time_offset..time_offset + 4].copy_from_slice(&86_400u32.to_le_bytes());
+    assert!(rkyv::from_bytes::<NaiveDateTime, rkyv::rancor::Error>(&bad_time).is_err());
 }

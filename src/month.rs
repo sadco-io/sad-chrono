@@ -469,11 +469,19 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     fn test_rkyv_validation() {
         let month = Month::January;
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&month).unwrap();
         assert_eq!(rkyv::from_bytes::<Month, rkyv::rancor::Error>(&bytes).unwrap(), month);
+
+        // ArchivedMonth is a #[repr(u8)] enum; discriminant 12 is invalid (valid: 0..=11).
+        let mut tampered = bytes;
+        tampered[0] = 12;
+        assert!(rkyv::from_bytes::<Month, rkyv::rancor::Error>(&tampered).is_err());
     }
 
     #[test]

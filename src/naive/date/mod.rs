@@ -100,6 +100,13 @@ mod tests;
         attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
     )
 )]
+#[cfg_attr(
+    all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ),
+    rkyv(bytecheck(verify))
+)]
 pub struct NaiveDate {
     yof: NonZeroI32, // (year << 13) | of
 }
@@ -2642,6 +2649,54 @@ mod serde {
             let encoded = to_allocvec(&d).unwrap();
             let decoded: NaiveDate = from_bytes(&encoded).unwrap();
             assert_eq!(d, decoded);
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+mod verify {
+    use core::{error::Error, fmt};
+
+    use rkyv::{
+        bytecheck::Verify,
+        rancor::{Fallible, Source, fail},
+    };
+
+    use super::{ArchivedNaiveDate, MAX_YEAR, MIN_YEAR, ORDINAL_MASK, YEAR_FLAGS_MASK, YearFlags};
+
+    #[derive(Debug)]
+    struct InvalidNaiveDateError;
+
+    impl fmt::Display for InvalidNaiveDateError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("archived NaiveDate violates calendar invariants")
+        }
+    }
+
+    impl Error for InvalidNaiveDateError {}
+
+    unsafe impl<C: Fallible + ?Sized> Verify<C> for ArchivedNaiveDate
+    where
+        C::Error: Source,
+    {
+        fn verify(&self, _: &mut C) -> Result<(), C::Error> {
+            let yof = self.yof.to_native().get();
+            let year = yof >> 13;
+            if !(MIN_YEAR..=MAX_YEAR).contains(&year) {
+                fail!(InvalidNaiveDateError);
+            }
+            let expected_flags = YearFlags::from_year(year);
+            if (yof & YEAR_FLAGS_MASK) as u8 != expected_flags.0 {
+                fail!(InvalidNaiveDateError);
+            }
+            let ordinal = ((yof & ORDINAL_MASK) >> 4) as u32;
+            if !(1..=expected_flags.ndays()).contains(&ordinal) {
+                fail!(InvalidNaiveDateError);
+            }
+            Ok(())
         }
     }
 }

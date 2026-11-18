@@ -407,11 +407,19 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     fn test_rkyv_validation() {
         let mon = Weekday::Mon;
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&mon).unwrap();
 
         assert_eq!(rkyv::from_bytes::<Weekday, rkyv::rancor::Error>(&bytes).unwrap(), mon);
+
+        // ArchivedWeekday is a #[repr(u8)] enum; discriminant 7 is invalid (valid: 0..=6).
+        let mut tampered = bytes;
+        tampered[0] = 7;
+        assert!(rkyv::from_bytes::<Weekday, rkyv::rancor::Error>(&tampered).is_err());
     }
 }

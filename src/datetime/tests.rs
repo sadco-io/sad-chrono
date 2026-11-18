@@ -1960,3 +1960,45 @@ fn nano_roundrip() {
         assert_eq!(nanos, nanos2);
     }
 }
+
+#[test]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+fn test_rkyv_validation() {
+    let utc = Utc.with_ymd_and_hms(2024, 2, 29, 12, 34, 56).unwrap();
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&utc).unwrap();
+    assert_eq!(rkyv::from_bytes::<DateTime<Utc>, rkyv::rancor::Error>(&bytes).unwrap(), utc);
+
+    let fixed = FixedOffset::east_opt(5 * 3600 + 30 * 60)
+        .unwrap()
+        .with_ymd_and_hms(2024, 2, 29, 12, 34, 56)
+        .unwrap();
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&fixed).unwrap();
+    assert_eq!(
+        rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bytes).unwrap(),
+        fixed
+    );
+
+    // ArchivedDateTime<FixedOffset> is #[repr(C)] {
+    //   datetime: ArchivedNaiveDateTime (0..12: date at 0..4, time at 4..12),
+    //   offset: ArchivedFixedOffset (12..16),
+    // }.
+    let dt_offset = core::mem::offset_of!(super::ArchivedDateTime<FixedOffset>, datetime);
+    let tz_offset = core::mem::offset_of!(super::ArchivedDateTime<FixedOffset>, offset);
+
+    let mut bad_date = bytes.clone();
+    let valid_yof = i32::from_le_bytes(bad_date[dt_offset..dt_offset + 4].try_into().unwrap());
+    let bad_yof = (valid_yof & !(0b1_1111_1111 << 4)) | (511 << 4);
+    bad_date[dt_offset..dt_offset + 4].copy_from_slice(&bad_yof.to_le_bytes());
+    assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bad_date).is_err());
+
+    let mut bad_time = bytes.clone();
+    bad_time[dt_offset + 4..dt_offset + 8].copy_from_slice(&86_400u32.to_le_bytes());
+    assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bad_time).is_err());
+
+    let mut bad_offset = bytes;
+    bad_offset[tz_offset..tz_offset + 4].copy_from_slice(&86_400i32.to_le_bytes());
+    assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bad_offset).is_err());
+}

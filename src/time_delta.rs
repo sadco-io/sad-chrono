@@ -60,6 +60,13 @@ const SECS_PER_WEEK: i64 = 604_800;
         attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
     )
 )]
+#[cfg_attr(
+    all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ),
+    rkyv(bytecheck(verify))
+)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeDelta {
     secs: i64,
@@ -77,6 +84,48 @@ pub(crate) const MAX: TimeDelta = TimeDelta {
     secs: i64::MAX / MILLIS_PER_SEC,
     nanos: (i64::MAX % MILLIS_PER_SEC) as i32 * NANOS_PER_MILLI,
 };
+
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+mod verify {
+    use core::{error::Error, fmt};
+
+    use rkyv::{
+        bytecheck::Verify,
+        rancor::{Fallible, Source, fail},
+    };
+
+    use super::{ArchivedTimeDelta, TimeDelta};
+
+    #[derive(Debug)]
+    struct InvalidTimeDeltaError;
+
+    impl fmt::Display for InvalidTimeDeltaError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("archived TimeDelta violates range or nanosecond invariants")
+        }
+    }
+
+    impl Error for InvalidTimeDeltaError {}
+
+    unsafe impl<C: Fallible + ?Sized> Verify<C> for ArchivedTimeDelta
+    where
+        C::Error: Source,
+    {
+        fn verify(&self, _: &mut C) -> Result<(), C::Error> {
+            let secs = self.secs.to_native();
+            let Ok(nanos) = u32::try_from(self.nanos.to_native()) else {
+                fail!(InvalidTimeDeltaError);
+            };
+            if TimeDelta::new(secs, nanos).is_none() {
+                fail!(InvalidTimeDeltaError);
+            }
+            Ok(())
+        }
+    }
+}
 
 impl TimeDelta {
     /// Makes a new `TimeDelta` with given number of seconds and nanoseconds.
@@ -1448,10 +1497,50 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     fn test_rkyv_validation() {
-        let duration = TimeDelta::try_seconds(1).unwrap();
-        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&duration).unwrap();
-        assert_eq!(rkyv::from_bytes::<TimeDelta, rkyv::rancor::Error>(&bytes).unwrap(), duration);
+        for duration in [TimeDelta::MIN, TimeDelta::try_seconds(1).unwrap(), TimeDelta::MAX] {
+            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&duration).unwrap();
+            assert_eq!(
+                rkyv::from_bytes::<TimeDelta, rkyv::rancor::Error>(&bytes).unwrap(),
+                duration
+            );
+        }
+
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&TimeDelta::MAX).unwrap();
+        // ArchivedTimeDelta is #[repr(C)] { secs: ArchivedI64 (0..8), nanos: ArchivedI32 (8..12) } + 4B pad.
+        let secs_offset = core::mem::offset_of!(super::ArchivedTimeDelta, secs);
+        let nanos_offset = core::mem::offset_of!(super::ArchivedTimeDelta, nanos);
+
+        // nanos = 1_000_000_000 and nanos = -1
+        for bad_nanos in [1_000_000_000i32, -1i32] {
+            let mut tampered = bytes.clone();
+            tampered[nanos_offset..nanos_offset + 4].copy_from_slice(&bad_nanos.to_le_bytes());
+            assert!(rkyv::from_bytes::<TimeDelta, rkyv::rancor::Error>(&tampered).is_err());
+        }
+
+        // secs out of TimeDelta::MIN..=TimeDelta::MAX
+        for bad_secs in [i64::MAX, i64::MIN] {
+            let mut tampered = bytes.clone();
+            tampered[secs_offset..secs_offset + 8].copy_from_slice(&bad_secs.to_le_bytes());
+            assert!(rkyv::from_bytes::<TimeDelta, rkyv::rancor::Error>(&tampered).is_err());
+        }
+
+        // secs == MAX.secs with nanos > MAX.nanos
+        let mut above_max = bytes.clone();
+        above_max[secs_offset..secs_offset + 8].copy_from_slice(&super::MAX.secs.to_le_bytes());
+        above_max[nanos_offset..nanos_offset + 4]
+            .copy_from_slice(&(super::MAX.nanos + 1).to_le_bytes());
+        assert!(rkyv::from_bytes::<TimeDelta, rkyv::rancor::Error>(&above_max).is_err());
+
+        // secs == MIN.secs with nanos < MIN.nanos
+        let mut below_min = bytes;
+        below_min[secs_offset..secs_offset + 8].copy_from_slice(&super::MIN.secs.to_le_bytes());
+        below_min[nanos_offset..nanos_offset + 4]
+            .copy_from_slice(&(super::MIN.nanos - 1).to_le_bytes());
+        assert!(rkyv::from_bytes::<TimeDelta, rkyv::rancor::Error>(&below_min).is_err());
     }
 }

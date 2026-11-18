@@ -931,7 +931,10 @@ const YEAR_FLAGS: [(i32, YearFlags, Weekday); 14] = [
 ];
 
 #[test]
-#[cfg(feature = "rkyv-validation")]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
 fn test_rkyv_validation() {
     let date_min = NaiveDate::MIN;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&date_min).unwrap();
@@ -940,6 +943,34 @@ fn test_rkyv_validation() {
     let date_max = NaiveDate::MAX;
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&date_max).unwrap();
     assert_eq!(rkyv::from_bytes::<NaiveDate, rkyv::rancor::Error>(&bytes).unwrap(), date_max);
+
+    // ArchivedNaiveDate is #[repr(C)] { yof: ArchivedNonZeroI32 } (4-byte little-endian i32 at offset 0).
+    let yof_offset = core::mem::offset_of!(super::ArchivedNaiveDate, yof);
+    let flags_2024 = YearFlags::from_year(2024).0 as i32;
+    let flags_2023 = YearFlags::from_year(2023).0 as i32;
+
+    let invalid_yofs = [
+        // Ordinal 511 (out of bounds for any year).
+        (2024 << 13) | (511 << 4) | flags_2024,
+        // Ordinal 0 (non-zero yof due to flags, but ordinal must be >= 1).
+        (2024 << 13) | flags_2024,
+        // Ordinal 366 in a common year (2023 has 365 days).
+        (2023 << 13) | (366 << 4) | flags_2023,
+        // Year outside MIN_YEAR..=MAX_YEAR (internal headroom years).
+        ((MAX_YEAR + 1) << 13) | (1 << 4) | (YearFlags::from_year(MAX_YEAR + 1).0 as i32),
+        ((MIN_YEAR - 1) << 13) | (1 << 4) | (YearFlags::from_year(MIN_YEAR - 1).0 as i32),
+        // Mismatched YearFlags bits for 2024.
+        (2024 << 13) | (1 << 4) | flags_2023,
+    ];
+
+    for bad_yof in invalid_yofs {
+        let mut tampered = bytes.clone();
+        tampered[yof_offset..yof_offset + 4].copy_from_slice(&bad_yof.to_le_bytes());
+        assert!(
+            rkyv::from_bytes::<NaiveDate, rkyv::rancor::Error>(&tampered).is_err(),
+            "expected error for yof {bad_yof:#x}"
+        );
+    }
 }
 
 //   MAX_YEAR-12-31 minus 0000-01-01

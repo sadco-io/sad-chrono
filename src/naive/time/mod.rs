@@ -218,6 +218,13 @@ mod tests;
         attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
     )
 )]
+#[cfg_attr(
+    all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ),
+    rkyv(bytecheck(verify))
+)]
 pub struct NaiveTime {
     secs: u32,
     frac: u32,
@@ -1665,5 +1672,45 @@ impl str::FromStr for NaiveTime {
 impl Default for NaiveTime {
     fn default() -> Self {
         NaiveTime::from_hms_opt(0, 0, 0).unwrap()
+    }
+}
+
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+mod verify {
+    use core::{error::Error, fmt};
+
+    use rkyv::{
+        bytecheck::Verify,
+        rancor::{Fallible, Source, fail},
+    };
+
+    use super::{ArchivedNaiveTime, NaiveTime};
+
+    #[derive(Debug)]
+    struct InvalidNaiveTimeError;
+
+    impl fmt::Display for InvalidNaiveTimeError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("archived NaiveTime violates time invariants")
+        }
+    }
+
+    impl Error for InvalidNaiveTimeError {}
+
+    unsafe impl<C: Fallible + ?Sized> Verify<C> for ArchivedNaiveTime
+    where
+        C::Error: Source,
+    {
+        fn verify(&self, _: &mut C) -> Result<(), C::Error> {
+            let secs = self.secs.to_native();
+            let frac = self.frac.to_native();
+            if NaiveTime::from_num_seconds_from_midnight_opt(secs, frac).is_none() {
+                fail!(InvalidNaiveTimeError);
+            }
+            Ok(())
+        }
     }
 }
