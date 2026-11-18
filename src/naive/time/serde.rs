@@ -130,14 +130,14 @@ mod tests {
     }
 
     #[test]
-    fn test_serde_bincode() {
-        // Bincode is relevant to test separately from JSON because
+    fn test_serde_postcard() {
+        // Postcard is relevant to test separately from JSON because
         // it is not self-describing.
-        use bincode::{deserialize, serialize};
+        use postcard::{from_bytes, to_allocvec};
 
         let t = NaiveTime::from_hms_nano_opt(3, 5, 7, 98765432).unwrap();
-        let encoded = serialize(&t).unwrap();
-        let decoded: NaiveTime = deserialize(&encoded).unwrap();
+        let encoded = to_allocvec(&t).unwrap();
+        let decoded: NaiveTime = from_bytes(&encoded).unwrap();
         assert_eq!(t, decoded);
     }
 }

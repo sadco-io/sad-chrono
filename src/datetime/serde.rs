@@ -1287,14 +1287,14 @@ mod tests {
     }
 
     #[test]
-    fn test_serde_bincode() {
-        // Bincode is relevant to test separately from JSON because
+    fn test_serde_postcard() {
+        // Postcard is relevant to test separately from JSON because
         // it is not self-describing.
-        use bincode::{deserialize, serialize};
+        use postcard::{from_bytes, to_allocvec};
 
         let dt = Utc.with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap();
-        let encoded = serialize(&dt).unwrap();
-        let decoded: DateTime<Utc> = deserialize(&encoded).unwrap();
+        let encoded = to_allocvec(&dt).unwrap();
+        let decoded: DateTime<Utc> = from_bytes(&encoded).unwrap();
         assert_eq!(dt, decoded);
         assert_eq!(dt.offset(), decoded.offset());
     }

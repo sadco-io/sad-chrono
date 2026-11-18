@@ -15,6 +15,7 @@ libfuzzer-sys = "0.4"
 [dependencies.chrono]
 package = "sad-chrono"
 path = ".."
+features = ["__internal_fuzz"]
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -27,3 +28,11 @@ path = "fuzz_targets/fuzz_reader.rs"
 [[bin]]
 name = "fuzz_format"
 path = "fuzz_targets/fuzz_format.rs"
+
+[[bin]]
+name = "fuzz_tzif"
+path = "fuzz_targets/fuzz_tzif.rs"
+
+[[bin]]
+name = "fuzz_tz_string"
+path = "fuzz_targets/fuzz_tz_string.rs"

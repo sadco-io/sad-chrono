@@ -1508,6 +1508,61 @@ fn test_from_system_time() {
         SystemTime::from(epoch.with_timezone(&FixedOffset::west_opt(28800).unwrap())),
         UNIX_EPOCH
     );
+
+    // Leap second just before UNIX_EPOCH: 1969-12-31T23:59:60.500Z == UNIX_EPOCH + 0.5s.
+    let pre_epoch_leap = NaiveDate::from_ymd_opt(1969, 12, 31)
+        .unwrap()
+        .and_hms_milli_opt(23, 59, 59, 1_500)
+        .unwrap()
+        .and_utc();
+    assert_eq!(SystemTime::from(pre_epoch_leap), UNIX_EPOCH + Duration::from_millis(500));
+
+    // Extreme DateTime -> SystemTime saturates instead of panicking on platforms with a narrower range.
+    let min_sys = SystemTime::from(DateTime::<Utc>::MIN_UTC);
+    let max_sys = SystemTime::from(DateTime::<Utc>::MAX_UTC);
+    assert!(min_sys <= UNIX_EPOCH);
+    assert!(max_sys >= UNIX_EPOCH);
+    let min_dur = Duration::new(DateTime::<Utc>::MIN_UTC.timestamp().unsigned_abs(), 0);
+    if let Some(expected_min) = UNIX_EPOCH.checked_sub(min_dur) {
+        assert_eq!(min_sys, expected_min);
+    }
+    let max_dur = Duration::new(
+        DateTime::<Utc>::MAX_UTC.timestamp() as u64,
+        DateTime::<Utc>::MAX_UTC.timestamp_subsec_nanos(),
+    );
+    if let Some(expected_max) = UNIX_EPOCH.checked_add(max_dur) {
+        assert_eq!(max_sys, expected_max);
+    }
+    #[cfg(windows)]
+    {
+        // Windows FILETIME spans 1601-01-01 (0 intervals) through ~30828-09-14 (i64::MAX intervals).
+        let win_min = UNIX_EPOCH.checked_sub(Duration::from_secs(11_644_473_600)).unwrap();
+        assert_eq!(min_sys, win_min);
+        assert!(min_sys.checked_sub(Duration::from_nanos(100)).is_none());
+        assert!(max_sys > UNIX_EPOCH);
+        assert!(max_sys.checked_add(Duration::from_nanos(100)).is_none());
+    }
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn test_saturate_system_time() {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    // Windows SystemTime has 100ns FILETIME resolution, so 1ns rounds down to 0 intervals.
+    let step = if cfg!(windows) { Duration::from_nanos(100) } else { Duration::from_nanos(1) };
+
+    let sat_max = super::saturate_system_time(false, u64::MAX);
+    assert!(sat_max.checked_add(step).is_none());
+    if UNIX_EPOCH.checked_add(step).is_some() {
+        assert_ne!(sat_max, UNIX_EPOCH);
+    }
+
+    let sat_min = super::saturate_system_time(true, u64::MAX);
+    assert!(sat_min.checked_sub(step).is_none());
+    if UNIX_EPOCH.checked_sub(step).is_some() {
+        assert_ne!(sat_min, UNIX_EPOCH);
+    }
 }
 
 #[test]
@@ -1958,5 +2013,171 @@ fn nano_roundrip() {
         let dt = Utc.timestamp_nanos(nanos);
         let nanos2 = dt.timestamp_nanos_opt().expect("value roundtrips");
         assert_eq!(nanos, nanos2);
+    }
+}
+
+#[test]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+fn test_rkyv_validation() {
+    let utc = Utc.with_ymd_and_hms(2024, 2, 29, 12, 34, 56).unwrap();
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&utc).unwrap();
+    assert_eq!(rkyv::from_bytes::<DateTime<Utc>, rkyv::rancor::Error>(&bytes).unwrap(), utc);
+
+    let fixed = FixedOffset::east_opt(5 * 3600 + 30 * 60)
+        .unwrap()
+        .with_ymd_and_hms(2024, 2, 29, 12, 34, 56)
+        .unwrap();
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&fixed).unwrap();
+    assert_eq!(
+        rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bytes).unwrap(),
+        fixed
+    );
+
+    // ArchivedDateTime<FixedOffset> is #[repr(C)] {
+    //   datetime: ArchivedNaiveDateTime (0..12: date at 0..4, time at 4..12),
+    //   offset: ArchivedFixedOffset (12..16),
+    // }.
+    let dt_offset = core::mem::offset_of!(super::ArchivedDateTime<FixedOffset>, datetime);
+    let tz_offset = core::mem::offset_of!(super::ArchivedDateTime<FixedOffset>, offset);
+
+    let mut bad_date = bytes.clone();
+    let valid_yof = i32::from_le_bytes(bad_date[dt_offset..dt_offset + 4].try_into().unwrap());
+    let bad_yof = (valid_yof & !(0b1_1111_1111 << 4)) | (511 << 4);
+    bad_date[dt_offset..dt_offset + 4].copy_from_slice(&bad_yof.to_le_bytes());
+    assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bad_date).is_err());
+
+    let mut bad_time = bytes.clone();
+    bad_time[dt_offset + 4..dt_offset + 8].copy_from_slice(&86_400u32.to_le_bytes());
+    assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bad_time).is_err());
+
+    let mut bad_offset = bytes;
+    bad_offset[tz_offset..tz_offset + 4].copy_from_slice(&86_400i32.to_le_bytes());
+    assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bad_offset).is_err());
+
+    // Valid UTC and FixedOffset extremes (local time within NaiveDateTime::MIN..=MAX).
+    for dt in [DateTime::<Utc>::MIN_UTC, DateTime::<Utc>::MAX_UTC] {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&dt).unwrap();
+        assert_eq!(rkyv::from_bytes::<DateTime<Utc>, rkyv::rancor::Error>(&bytes).unwrap(), dt);
+    }
+
+    let east_max = FixedOffset::east_opt(86_399).unwrap();
+    let west_max = FixedOffset::east_opt(-86_399).unwrap();
+    for dt in [
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(
+            NaiveDateTime::MAX - TimeDelta::seconds(86_399),
+            east_max,
+        ),
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MAX, west_max),
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(
+            NaiveDateTime::MIN + TimeDelta::seconds(86_399),
+            west_max,
+        ),
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MIN, east_max),
+    ] {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&dt).unwrap();
+        assert_eq!(
+            rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bytes).unwrap(),
+            dt
+        );
+    }
+
+    // Security PoC: valid NaiveDateTime + valid FixedOffset whose local time overflows NaiveDateTime.
+    for out_of_range in [
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MAX, east_max),
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MIN, west_max),
+    ] {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&out_of_range).unwrap();
+        assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bytes).is_err());
+    }
+
+    #[cfg(feature = "clock")]
+    {
+        let valid_local = DateTime::<Local>::from_naive_utc_and_offset(
+            NaiveDate::from_ymd_opt(2024, 2, 29).unwrap().and_hms_opt(12, 34, 56).unwrap(),
+            east_max,
+        );
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&valid_local).unwrap();
+        assert_eq!(
+            rkyv::from_bytes::<DateTime<Local>, rkyv::rancor::Error>(&bytes).unwrap(),
+            valid_local
+        );
+
+        let oob_local = DateTime::<Local>::from_naive_utc_and_offset(NaiveDateTime::MAX, east_max);
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&oob_local).unwrap();
+        assert!(rkyv::from_bytes::<DateTime<Local>, rkyv::rancor::Error>(&bytes).is_err());
+    }
+}
+
+#[test]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
+fn test_rkyv_custom_timezone_validation() {
+    #[derive(Clone, Debug, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+    struct CustomOffset {
+        secs: i32,
+    }
+
+    impl crate::offset::Offset for CustomOffset {
+        fn fix(&self) -> FixedOffset {
+            FixedOffset::east_opt(self.secs).unwrap()
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct CustomTz {
+        secs: i32,
+    }
+
+    impl TimeZone for CustomTz {
+        type Offset = CustomOffset;
+
+        fn from_offset(offset: &Self::Offset) -> Self {
+            Self { secs: offset.secs }
+        }
+
+        fn offset_from_local_date(
+            &self,
+            _local: &NaiveDate,
+        ) -> crate::MappedLocalTime<Self::Offset> {
+            crate::MappedLocalTime::Single(CustomOffset { secs: self.secs })
+        }
+
+        fn offset_from_local_datetime(
+            &self,
+            _local: &NaiveDateTime,
+        ) -> crate::MappedLocalTime<Self::Offset> {
+            crate::MappedLocalTime::Single(CustomOffset { secs: self.secs })
+        }
+
+        fn offset_from_utc_date(&self, _utc: &NaiveDate) -> Self::Offset {
+            CustomOffset { secs: self.secs }
+        }
+
+        fn offset_from_utc_datetime(&self, _utc: &NaiveDateTime) -> Self::Offset {
+            CustomOffset { secs: self.secs }
+        }
+    }
+
+    let valid = CustomTz { secs: 3600 }.with_ymd_and_hms(2024, 2, 29, 12, 34, 56).unwrap();
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&valid).unwrap();
+    assert_eq!(rkyv::from_bytes::<DateTime<CustomTz>, rkyv::rancor::Error>(&bytes).unwrap(), valid);
+
+    for out_of_range in [
+        DateTime::<CustomTz>::from_naive_utc_and_offset(
+            NaiveDateTime::MAX,
+            CustomOffset { secs: 3600 },
+        ),
+        DateTime::<CustomTz>::from_naive_utc_and_offset(
+            NaiveDateTime::MIN,
+            CustomOffset { secs: -3600 },
+        ),
+    ] {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&out_of_range).unwrap();
+        assert!(rkyv::from_bytes::<DateTime<CustomTz>, rkyv::rancor::Error>(&bytes).is_err());
     }
 }

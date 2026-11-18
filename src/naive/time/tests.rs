@@ -378,13 +378,54 @@ fn test_overflowing_offset() {
 }
 
 #[test]
-#[cfg(feature = "rkyv-validation")]
+#[cfg(all(
+    feature = "rkyv-validation",
+    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+))]
 fn test_rkyv_validation() {
     let t_min = NaiveTime::MIN;
-    let bytes = rkyv::to_bytes::<_, 8>(&t_min).unwrap();
-    assert_eq!(rkyv::from_bytes::<NaiveTime>(&bytes).unwrap(), t_min);
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&t_min).unwrap();
+    assert_eq!(rkyv::from_bytes::<NaiveTime, rkyv::rancor::Error>(&bytes).unwrap(), t_min);
 
     let t_max = NaiveTime::MAX;
-    let bytes = rkyv::to_bytes::<_, 8>(&t_max).unwrap();
-    assert_eq!(rkyv::from_bytes::<NaiveTime>(&bytes).unwrap(), t_max);
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&t_max).unwrap();
+    assert_eq!(rkyv::from_bytes::<NaiveTime, rkyv::rancor::Error>(&bytes).unwrap(), t_max);
+
+    let t_leap = NaiveTime::from_hms_nano_opt(23, 59, 59, 1_500_000_000).unwrap();
+    let leap_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&t_leap).unwrap();
+    assert_eq!(rkyv::from_bytes::<NaiveTime, rkyv::rancor::Error>(&leap_bytes).unwrap(), t_leap);
+
+    // ArchivedNaiveTime is #[repr(C)] { secs: ArchivedU32 (0..4), frac: ArchivedU32 (4..8) }.
+    let secs_offset = core::mem::offset_of!(super::ArchivedNaiveTime, secs);
+    let frac_offset = core::mem::offset_of!(super::ArchivedNaiveTime, frac);
+
+    // secs = 86_400 (>= 86_400)
+    let mut bad_secs = bytes.clone();
+    bad_secs[secs_offset..secs_offset + 4].copy_from_slice(&86_400u32.to_le_bytes());
+    assert!(rkyv::from_bytes::<NaiveTime, rkyv::rancor::Error>(&bad_secs).is_err());
+
+    // frac = 2_000_000_000 (>= 2_000_000_000)
+    let mut bad_frac = leap_bytes.clone();
+    bad_frac[frac_offset..frac_offset + 4].copy_from_slice(&2_000_000_000u32.to_le_bytes());
+    assert!(rkyv::from_bytes::<NaiveTime, rkyv::rancor::Error>(&bad_frac).is_err());
+
+    // Non-:59 second (secs = 0, secs % 60 != 59) paired with leap frac (>= 1_000_000_000) is
+    // valid because Timelike::with_nanosecond allows leap seconds after any whole second.
+    let expected_non_59_leap =
+        NaiveTime::from_hms_opt(0, 0, 0).unwrap().with_nanosecond(1_000_000_000).unwrap();
+    let mut non_59_leap = bytes;
+    non_59_leap[secs_offset..secs_offset + 4].copy_from_slice(&0u32.to_le_bytes());
+    non_59_leap[frac_offset..frac_offset + 4].copy_from_slice(&1_000_000_000u32.to_le_bytes());
+    assert_eq!(
+        rkyv::from_bytes::<NaiveTime, rkyv::rancor::Error>(&non_59_leap).unwrap(),
+        expected_non_59_leap
+    );
+
+    let strange_leap =
+        NaiveTime::from_hms_opt(23, 56, 4).unwrap().with_nanosecond(1_333_333_333).unwrap();
+    let strange_leap_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&strange_leap).unwrap();
+    assert_eq!(
+        rkyv::from_bytes::<NaiveTime, rkyv::rancor::Error>(&strange_leap_bytes).unwrap(),
+        strange_leap
+    );
 }

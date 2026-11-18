@@ -20,10 +20,12 @@ use rkyv::{Archive, Deserialize, Serialize};
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
-    archive(compare(PartialEq, PartialOrd)),
-    archive_attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+    rkyv(
+        compare(PartialEq, PartialOrd),
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)),
+        bytecheck(verify)
+    )
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 pub struct IsoWeek {
     // Note that this allows for larger year range than `NaiveDate`.
     // This is crucial because we have an edge case for the first and last week supported,
@@ -175,9 +177,58 @@ impl defmt::Format for IsoWeek {
     }
 }
 
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
+mod verify {
+    use core::{error::Error, fmt};
+
+    use rkyv::{
+        bytecheck::Verify,
+        rancor::{Fallible, Source, fail},
+    };
+
+    use super::{ArchivedIsoWeek, YearFlags};
+    use crate::naive::date::{MAX_YEAR, MIN_YEAR};
+
+    #[derive(Debug)]
+    struct InvalidIsoWeekError;
+
+    impl fmt::Display for InvalidIsoWeekError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("archived IsoWeek violates ISO week invariants")
+        }
+    }
+
+    impl Error for InvalidIsoWeekError {}
+
+    unsafe impl<C: Fallible + ?Sized> Verify<C> for ArchivedIsoWeek
+    where
+        C::Error: Source,
+    {
+        fn verify(&self, _: &mut C) -> Result<(), C::Error> {
+            let ywf = self.ywf.to_native();
+            let year = ywf >> 10;
+            if !(MIN_YEAR..=MAX_YEAR + 1).contains(&year) {
+                fail!(InvalidIsoWeekError);
+            }
+            let expected_flags = YearFlags::from_year(year);
+            if (ywf & 0xf) as u8 != expected_flags.0 {
+                fail!(InvalidIsoWeekError);
+            }
+            let week = ((ywf >> 4) & 0x3f) as u32;
+            if !(1..=expected_flags.nisoweeks()).contains(&week) {
+                fail!(InvalidIsoWeekError);
+            }
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     use super::IsoWeek;
     use crate::Datelike;
     use crate::naive::date::{self, NaiveDate};
@@ -235,14 +286,46 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     fn test_rkyv_validation() {
         let minweek = NaiveDate::MIN.iso_week();
-        let bytes = rkyv::to_bytes::<_, 4>(&minweek).unwrap();
-        assert_eq!(rkyv::from_bytes::<IsoWeek>(&bytes).unwrap(), minweek);
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&minweek).unwrap();
+        assert_eq!(rkyv::from_bytes::<IsoWeek, rkyv::rancor::Error>(&bytes).unwrap(), minweek);
 
         let maxweek = NaiveDate::MAX.iso_week();
-        let bytes = rkyv::to_bytes::<_, 4>(&maxweek).unwrap();
-        assert_eq!(rkyv::from_bytes::<IsoWeek>(&bytes).unwrap(), maxweek);
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&maxweek).unwrap();
+        assert_eq!(rkyv::from_bytes::<IsoWeek, rkyv::rancor::Error>(&bytes).unwrap(), maxweek);
+
+        let w53 = NaiveDate::from_ymd_opt(2020, 12, 31).unwrap().iso_week();
+        assert_eq!(w53.week(), 53);
+        let w53_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&w53).unwrap();
+        assert_eq!(rkyv::from_bytes::<IsoWeek, rkyv::rancor::Error>(&w53_bytes).unwrap(), w53);
+
+        // ArchivedIsoWeek is #[repr(C)] { ywf: ArchivedI32 (0..4) }.
+        let ywf_offset = core::mem::offset_of!(super::ArchivedIsoWeek, ywf);
+        let flags_2025 = super::YearFlags::from_year(2025).0 as i32; // 52-week year
+        let flags_2024 = super::YearFlags::from_year(2024).0 as i32;
+
+        let invalid_ywfs = [
+            // week = 0 (would underflow week0())
+            (2025 << 10) | flags_2025,
+            // week = 53 in a 52-week year
+            (2025 << 10) | (53 << 4) | flags_2025,
+            // mismatched YearFlags
+            (2025 << 10) | (1 << 4) | flags_2024,
+            // year out of range
+            ((date::MAX_YEAR + 2) << 10)
+                | (1 << 4)
+                | (super::YearFlags::from_year(date::MAX_YEAR + 2).0 as i32),
+        ];
+
+        for bad_ywf in invalid_ywfs {
+            let mut tampered = bytes.clone();
+            tampered[ywf_offset..ywf_offset + 4].copy_from_slice(&bad_ywf.to_le_bytes());
+            assert!(rkyv::from_bytes::<IsoWeek, rkyv::rancor::Error>(&tampered).is_err());
+        }
     }
 }

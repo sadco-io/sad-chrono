@@ -95,10 +95,12 @@ mod tests;
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
-    archive(compare(PartialEq, PartialOrd)),
-    archive_attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+    rkyv(
+        compare(PartialEq, PartialOrd),
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)),
+        bytecheck(verify)
+    )
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 pub struct NaiveDate {
     yof: NonZeroI32, // (year << 13) | of
 }
@@ -1272,9 +1274,29 @@ impl NaiveDate {
     ///
     /// # Panics
     ///
-    /// Converting or formatting the returned `DelayedFormat` panics if the format string is wrong.
-    /// Because of this delayed failure, you are recommended to immediately use the `DelayedFormat`
-    /// value.
+    /// Formatting the returned `DelayedFormat` through `Display` (`to_string()`, `format!`)
+    /// panics if formatting fails, because `Display::fmt` returns `fmt::Error`. Formatting fails
+    /// when `fmt` contains:
+    ///
+    /// - invalid or unrecognized specifiers;
+    /// - parse-only specifiers such as `%#z`;
+    /// - specifiers for fields the type lacks (time fields on `NaiveDate`, date fields on
+    ///   `NaiveTime`, and timezone specifiers such as `%z`, `%:z`, or `%Z` on naive types).
+    ///
+    /// For untrusted format strings, use `write!` (via [`core::fmt::Write`]) and handle the
+    /// `fmt::Result` error instead of calling `to_string()` or `format!`:
+    ///
+    /// ```
+    /// use core::fmt::Write;
+    /// use sad_chrono::NaiveDate;
+    ///
+    /// let d = NaiveDate::from_ymd_opt(2015, 9, 5).unwrap();
+    /// let mut out = String::new();
+    /// assert!(write!(out, "{}", d.format("%H")).is_err());
+    /// out.clear();
+    /// assert!(write!(out, "{}", d.format("%Y-%m-%d")).is_ok());
+    /// assert_eq!(out, "2015-09-05");
+    /// ```
     ///
     /// # Example
     ///
@@ -2632,15 +2654,60 @@ mod serde {
         }
 
         #[test]
-        fn test_serde_bincode() {
-            // Bincode is relevant to test separately from JSON because
+        fn test_serde_postcard() {
+            // Postcard is relevant to test separately from JSON because
             // it is not self-describing.
-            use bincode::{deserialize, serialize};
+            use postcard::{from_bytes, to_allocvec};
 
             let d = NaiveDate::from_ymd_opt(2014, 7, 24).unwrap();
-            let encoded = serialize(&d).unwrap();
-            let decoded: NaiveDate = deserialize(&encoded).unwrap();
+            let encoded = to_allocvec(&d).unwrap();
+            let decoded: NaiveDate = from_bytes(&encoded).unwrap();
             assert_eq!(d, decoded);
+        }
+    }
+}
+
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
+mod verify {
+    use core::{error::Error, fmt};
+
+    use rkyv::{
+        bytecheck::Verify,
+        rancor::{Fallible, Source, fail},
+    };
+
+    use super::{ArchivedNaiveDate, MAX_YEAR, MIN_YEAR, ORDINAL_MASK, YEAR_FLAGS_MASK, YearFlags};
+
+    #[derive(Debug)]
+    struct InvalidNaiveDateError;
+
+    impl fmt::Display for InvalidNaiveDateError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("archived NaiveDate violates calendar invariants")
+        }
+    }
+
+    impl Error for InvalidNaiveDateError {}
+
+    unsafe impl<C: Fallible + ?Sized> Verify<C> for ArchivedNaiveDate
+    where
+        C::Error: Source,
+    {
+        fn verify(&self, _: &mut C) -> Result<(), C::Error> {
+            let yof = self.yof.to_native().get();
+            let year = yof >> 13;
+            if !(MIN_YEAR..=MAX_YEAR).contains(&year) {
+                fail!(InvalidNaiveDateError);
+            }
+            let expected_flags = YearFlags::from_year(year);
+            if (yof & YEAR_FLAGS_MASK) as u8 != expected_flags.0 {
+                fail!(InvalidNaiveDateError);
+            }
+            let ordinal = ((yof & ORDINAL_MASK) >> 4) as u32;
+            if !(1..=expected_flags.ndays()).contains(&ordinal) {
+                fail!(InvalidNaiveDateError);
+            }
+            Ok(())
         }
     }
 }

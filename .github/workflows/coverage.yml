@@ -19,18 +19,19 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       # nightly is required for --doctests, see cargo-llvm-cov#2. rustfmt is needed by
       # tests/win_bindings.rs (windows-bindgen formats its output with it).
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
+          toolchain: nightly
           components: llvm-tools-preview, rustfmt
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: cargo-llvm-cov@0.9.1
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Generate code coverage
         run: cargo +nightly llvm-cov ${{ env.ALL_NON_EXCLUSIVE_FEATURES }} --workspace --lcov --doctests --output-path lcov.info
       # Coverage is always generated, so breakage shows up even without Codecov. The upload
@@ -49,7 +50,7 @@ jobs:
           fi
       - name: Upload coverage to Codecov
         if: steps.codecov.outputs.enabled == 'true'
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info

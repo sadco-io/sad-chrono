@@ -213,10 +213,12 @@ mod tests;
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
-    archive(compare(PartialEq, PartialOrd)),
-    archive_attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+    rkyv(
+        compare(PartialEq, PartialOrd),
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)),
+        bytecheck(verify)
+    )
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 pub struct NaiveTime {
     secs: u32,
     frac: u32,
@@ -842,6 +844,32 @@ impl NaiveTime {
     /// A wrong format string does *not* issue an error immediately.
     /// Rather, converting or formatting the `DelayedFormat` fails.
     /// You are recommended to immediately use `DelayedFormat` for this reason.
+    ///
+    /// # Panics
+    ///
+    /// Formatting the returned `DelayedFormat` through `Display` (`to_string()`, `format!`)
+    /// panics if formatting fails, because `Display::fmt` returns `fmt::Error`. Formatting fails
+    /// when `fmt` contains:
+    ///
+    /// - invalid or unrecognized specifiers;
+    /// - parse-only specifiers such as `%#z`;
+    /// - specifiers for fields the type lacks (time fields on `NaiveDate`, date fields on
+    ///   `NaiveTime`, and timezone specifiers such as `%z`, `%:z`, or `%Z` on naive types).
+    ///
+    /// For untrusted format strings, use `write!` (via [`core::fmt::Write`]) and handle the
+    /// `fmt::Result` error instead of calling `to_string()` or `format!`:
+    ///
+    /// ```
+    /// use core::fmt::Write;
+    /// use sad_chrono::NaiveTime;
+    ///
+    /// let t = NaiveTime::from_hms_opt(23, 56, 4).unwrap();
+    /// let mut out = String::new();
+    /// assert!(write!(out, "{}", t.format("%Y")).is_err());
+    /// out.clear();
+    /// assert!(write!(out, "{}", t.format("%H:%M:%S")).is_ok());
+    /// assert_eq!(out, "23:56:04");
+    /// ```
     ///
     /// # Example
     ///
@@ -1664,5 +1692,42 @@ impl str::FromStr for NaiveTime {
 impl Default for NaiveTime {
     fn default() -> Self {
         NaiveTime::from_hms_opt(0, 0, 0).unwrap()
+    }
+}
+
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
+mod verify {
+    use core::{error::Error, fmt};
+
+    use rkyv::{
+        bytecheck::Verify,
+        rancor::{Fallible, Source, fail},
+    };
+
+    use super::ArchivedNaiveTime;
+
+    #[derive(Debug)]
+    struct InvalidNaiveTimeError;
+
+    impl fmt::Display for InvalidNaiveTimeError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("archived NaiveTime violates time invariants")
+        }
+    }
+
+    impl Error for InvalidNaiveTimeError {}
+
+    unsafe impl<C: Fallible + ?Sized> Verify<C> for ArchivedNaiveTime
+    where
+        C::Error: Source,
+    {
+        fn verify(&self, _: &mut C) -> Result<(), C::Error> {
+            let secs = self.secs.to_native();
+            let frac = self.frac.to_native();
+            if secs >= 86_400 || frac >= 2_000_000_000 {
+                fail!(InvalidNaiveTimeError);
+            }
+            Ok(())
+        }
     }
 }

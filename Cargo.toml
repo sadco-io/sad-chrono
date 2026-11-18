@@ -1,6 +1,6 @@
 [package]
 name = "sad-chrono"
-version = "0.4.46"
+version = "0.5.0"
 authors = ["Sadco Security Team", "The chrono contributors"]
 description = "Date and time library for Rust: a maintained, API-compatible fork of chrono with security fixes"
 homepage = "https://github.com/sadco-io/sad-chrono"
@@ -12,7 +12,7 @@ readme = "README.md"
 license = "MIT OR Apache-2.0"
 include = ["src/*", "tests/*.rs", "LICENSE.txt", "NOTICE", "SECURITY.md", "CITATION.cff"]
 edition = "2021"
-rust-version = "1.62.0"
+rust-version = "1.85.0"
 
 [features]
 # Don't forget to adjust `ALL_NON_EXCLUSIVE_FEATURES` in CI scripts when adding a feature or an optional dependency.
@@ -29,28 +29,31 @@ oldtime = []
 wasmbind = ["wasm-bindgen", "js-sys"]
 unstable-locales = ["pure-rust-locales"]
 # Note that rkyv-16, rkyv-32, and rkyv-64 are mutually exclusive.
-rkyv = ["dep:rkyv", "rkyv/size_32"]
-rkyv-16 = ["dep:rkyv", "rkyv?/size_16"]
-rkyv-32 = ["dep:rkyv", "rkyv?/size_32"]
-rkyv-64 = ["dep:rkyv", "rkyv?/size_64"]
-rkyv-validation = ["rkyv?/validation"]
+rkyv = ["dep:rkyv", "rkyv/pointer_width_32", "rkyv/bytecheck"]
+rkyv-16 = ["dep:rkyv", "rkyv?/pointer_width_16", "rkyv?/bytecheck"]
+rkyv-32 = ["dep:rkyv", "rkyv?/pointer_width_32", "rkyv?/bytecheck"]
+rkyv-64 = ["dep:rkyv", "rkyv?/pointer_width_64", "rkyv?/bytecheck"]
+# Compatibility feature: semantic validation is always active whenever rkyv CheckBytes is enabled;
+# this additionally enables rkyv/alloc (needed for helpers like to_bytes/from_bytes).
+rkyv-validation = ["dep:rkyv", "rkyv?/bytecheck", "rkyv?/alloc"]
 # Features for internal use only:
 __internal_bench = []
+__internal_fuzz = []
 
 [dependencies]
 num-traits = { version = "0.2", default-features = false }
 serde = { version = "1.0.99", default-features = false, optional = true }
 pure-rust-locales = { version = "0.8.2", optional = true }
-rkyv = { version = "0.7.43", optional = true, default-features = false }
+rkyv = { version = "0.8.18", optional = true, default-features = false }
 arbitrary = { version = "1.0.0", features = ["derive"], optional = true }
-defmt = { version = "1.0.1", optional = true }
+defmt = { version = "1.2", optional = true }
 
 [target.'cfg(all(target_family = "wasm", not(any(target_os = "emscripten", target_os = "wasi"))))'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }       # contains FFI bindings for the JS Date API
 
 [target.'cfg(windows)'.dependencies]
-windows-link = { version = "0.2", optional = true }
+windows-link = { version = "0.100", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 iana-time-zone = { version = "0.1.45", optional = true, features = ["fallback"] }
@@ -59,14 +62,14 @@ iana-time-zone = { version = "0.1.45", optional = true, features = ["fallback"] 
 serde_json = { version = "1" }
 serde_derive = { version = "1", default-features = false }
 similar-asserts = { version = "2.0.0" }
-bincode = { version = "1.3.0" }
-windows-bindgen = { version = "0.66" }                     # MSRV is 1.74
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+windows-bindgen = { version = "0.100" }                    # MSRV is 1.95 (dev-dependency only)
 
 [target.'cfg(all(target_family = "wasm", not(any(target_os = "emscripten", target_os = "wasi"))))'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 
 [package.metadata.docs.rs]
-features = ["arbitrary", "rkyv", "serde", "unstable-locales"]
+features = ["arbitrary", "rkyv-32", "rkyv-validation", "serde", "unstable-locales"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.playground]

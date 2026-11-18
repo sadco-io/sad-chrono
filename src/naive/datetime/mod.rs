@@ -68,10 +68,11 @@ pub const MAX_DATETIME: NaiveDateTime = NaiveDateTime::MAX;
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
-    archive(compare(PartialEq, PartialOrd)),
-    archive_attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+    rkyv(
+        compare(PartialEq, PartialOrd),
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+    )
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 #[cfg_attr(all(feature = "arbitrary", feature = "std"), derive(arbitrary::Arbitrary))]
 pub struct NaiveDateTime {
     date: NaiveDate,
@@ -875,6 +876,32 @@ impl NaiveDateTime {
     /// A wrong format string does *not* issue an error immediately.
     /// Rather, converting or formatting the `DelayedFormat` fails.
     /// You are recommended to immediately use `DelayedFormat` for this reason.
+    ///
+    /// # Panics
+    ///
+    /// Formatting the returned `DelayedFormat` through `Display` (`to_string()`, `format!`)
+    /// panics if formatting fails, because `Display::fmt` returns `fmt::Error`. Formatting fails
+    /// when `fmt` contains:
+    ///
+    /// - invalid or unrecognized specifiers;
+    /// - parse-only specifiers such as `%#z`;
+    /// - specifiers for fields the type lacks (time fields on `NaiveDate`, date fields on
+    ///   `NaiveTime`, and timezone specifiers such as `%z`, `%:z`, or `%Z` on naive types).
+    ///
+    /// For untrusted format strings, use `write!` (via [`core::fmt::Write`]) and handle the
+    /// `fmt::Result` error instead of calling `to_string()` or `format!`:
+    ///
+    /// ```
+    /// use core::fmt::Write;
+    /// use sad_chrono::NaiveDate;
+    ///
+    /// let dt = NaiveDate::from_ymd_opt(2015, 9, 5).unwrap().and_hms_opt(23, 56, 4).unwrap();
+    /// let mut out = String::new();
+    /// assert!(write!(out, "{}", dt.format("%z")).is_err());
+    /// out.clear();
+    /// assert!(write!(out, "{}", dt.format("%Y-%m-%d %H:%M:%S")).is_ok());
+    /// assert_eq!(out, "2015-09-05 23:56:04");
+    /// ```
     ///
     /// # Example
     ///

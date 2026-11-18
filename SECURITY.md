@@ -2,7 +2,11 @@
 
 ## Supported Versions
 
-Security updates are applied only to the most recent release.
+| Version | Supported | Notes |
+|---------|-----------|-------|
+| `0.5.x` | All fixes | Current release line |
+| `0.4.x` | Security fixes only | Maintained on the `0.4.x` branch. The tzdata allocation bound is planned for the 0.4.x line (0.4.47). The other 0.5.0 fixes depend on rkyv 0.8 or change behavior, and are 0.5-only. |
+| `< 0.4.46` | No | Upgrade to `0.5.x` or `0.4.x` |
 
 ## Scope
 

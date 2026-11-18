@@ -6,7 +6,7 @@ env:
 
 on:
   push:
-    branches: [main, 0.5.x]
+    branches: [main, 0.4.x]
   pull_request:
 
 permissions:
@@ -17,12 +17,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, i686-pc-windows-msvc
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo fmt --check -- --color=always
       - run: cargo fmt --check --manifest-path fuzz/Cargo.toml
       - run: cargo fmt --check --manifest-path bench/Cargo.toml
@@ -31,6 +34,9 @@ jobs:
             -- -D warnings
       - run: |
           cargo clippy --target=x86_64-pc-windows-msvc --all-targets --color=always \
+            -- -D warnings
+      - run: |
+          cargo clippy --target=i686-pc-windows-msvc --all-targets --color=always \
             -- -D warnings
       - run: |
           cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --color=always \
@@ -44,15 +50,21 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2
 
   check-doc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install --locked cargo-deadlinks
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+      - run: cargo install --locked cargo-deadlinks@0.8.1
       - run: cargo deadlinks -- ${{ env.ALL_NON_EXCLUSIVE_FEATURES }}
       - run: cargo doc ${{ env.ALL_NON_EXCLUSIVE_FEATURES }} --no-deps
         env:
@@ -61,48 +73,71 @@ jobs:
   cffconvert:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: citation-file-format/cffconvert-github-action@2.0.0
+      - uses: citation-file-format/cffconvert-github-action@4cf11baa70a673bfdf9dad0acc7ee33b3f4b6084 # 2.0.0
         with:
           args: --validate
 
   semver:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # Keep rust-toolchain and cargo-semver-checks pinned together:
       # cargo-semver-checks only reads the rustdoc JSON formats it was built for.
-      - uses: dtolnay/rust-toolchain@1.100.0
-      - uses: taiki-e/install-action@v2
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: 1.100.0
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: cargo-semver-checks@0.51.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      # The 0.5 line keeps the chrono 0.4 public API, so every release, including
+      # 0.4.46 -> 0.5.0, is checked as non-breaking. Rust trait impls of rkyv 0.8
+      # are outside what the tool models.
       - run: |
-          git clone --depth 1 --branch v0.4.45 https://github.com/chronotope/chrono "$RUNNER_TEMP/chrono-0.4.45"
-          python3 -c '
-          import os
-          from pathlib import Path
-          p = Path(os.environ["RUNNER_TEMP"]) / "chrono-0.4.45" / "Cargo.toml"
-          text = p.read_text()
-          text = text.replace("name = \"chrono\"\n", "name = \"sad-chrono\"\n", 1)
-          text = text.replace("[lib]\nname = \"chrono\"\n", "")
-          p.write_text(text)
-          '
-          cargo semver-checks check-release --baseline-root "$RUNNER_TEMP/chrono-0.4.45" --default-features
-          cargo semver-checks check-release --baseline-root "$RUNNER_TEMP/chrono-0.4.45" \
+          cargo semver-checks check-release --release-type minor --default-features
+          cargo semver-checks check-release --release-type minor \
             --only-explicit-features --features default,unstable-locales,rkyv-64,rkyv-validation,serde,arbitrary
 
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: |
           files=$(cargo package --list)
           for required in NOTICE SECURITY.md LICENSE.txt README.md src/lib.rs; do
             echo "$files" | grep -qx "$required" || { echo "missing from package: $required"; exit 1; }
           done
       - run: cargo publish --dry-run
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: nightly
+      # Build from source instead of taiki-e/install-action: its binstall fallback
+      # ships a musl cargo-fuzz, which targets musl and breaks the sanitizer build.
+      - run: cargo install --locked cargo-fuzz@0.13.2
+      - run: cargo fuzz run fuzz_tzif -- -max_total_time=60
+        working-directory: fuzz
+      - run: cargo fuzz run fuzz_tz_string -- -max_total_time=60
+        working-directory: fuzz
+      - run: cargo fuzz run fuzz_reader -- -max_total_time=60
+        working-directory: fuzz
+      - run: cargo fuzz run fuzz_format -- -max_total_time=60
+        working-directory: fuzz

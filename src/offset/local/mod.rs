@@ -25,7 +25,15 @@ mod inner;
 mod inner;
 
 #[cfg(all(windows, feature = "clock"))]
-#[allow(unreachable_pub)]
+// windows-bindgen 0.100 no longer emits these allows in the generated file itself.
+#[allow(
+    unreachable_pub,
+    non_snake_case,
+    non_upper_case_globals,
+    non_camel_case_types,
+    dead_code,
+    clippy::all
+)]
 mod win_bindings;
 
 #[cfg(all(any(target_os = "android", target_env = "ohos", test), feature = "clock"))]
@@ -96,7 +104,7 @@ mod inner {
 }
 
 #[cfg(unix)]
-mod tz_info;
+pub(crate) mod tz_info;
 
 /// The local timescale.
 ///
@@ -117,10 +125,8 @@ mod tz_info;
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
-    archive(compare(PartialEq)),
-    archive_attr(derive(Clone, Copy, Debug))
+    rkyv(compare(PartialEq), attr(derive(Clone, Copy, Debug)))
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Local;
@@ -529,15 +535,21 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     fn test_rkyv_validation() {
         let local = Local;
         // Local is a ZST and serializes to 0 bytes
-        let bytes = rkyv::to_bytes::<_, 0>(&local).unwrap();
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&local).unwrap();
         assert_eq!(bytes.len(), 0);
 
         // but is deserialized to an archived variant without a
         // wrapping object
-        assert_eq!(rkyv::from_bytes::<Local>(&bytes).unwrap(), super::ArchivedLocal);
+        assert_eq!(
+            rkyv::from_bytes::<Local, rkyv::rancor::Error>(&bytes).unwrap(),
+            super::ArchivedLocal
+        );
     }
 }

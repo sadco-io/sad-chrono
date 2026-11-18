@@ -33,10 +33,11 @@ use crate::naive::NaiveDate;
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
-    archive(compare(PartialEq, PartialOrd)),
-    archive_attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+    rkyv(
+        compare(PartialEq, PartialOrd),
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+    )
 )]
-#[cfg_attr(feature = "rkyv-validation", archive(check_bytes))]
 #[cfg_attr(all(feature = "arbitrary", feature = "std"), derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Month {
@@ -468,11 +469,19 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     fn test_rkyv_validation() {
         let month = Month::January;
-        let bytes = rkyv::to_bytes::<_, 1>(&month).unwrap();
-        assert_eq!(rkyv::from_bytes::<Month>(&bytes).unwrap(), month);
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&month).unwrap();
+        assert_eq!(rkyv::from_bytes::<Month, rkyv::rancor::Error>(&bytes).unwrap(), month);
+
+        // ArchivedMonth is a #[repr(u8)] enum; discriminant 12 is invalid (valid: 0..=11).
+        let mut tampered = bytes;
+        tampered[0] = 12;
+        assert!(rkyv::from_bytes::<Month, rkyv::rancor::Error>(&tampered).is_err());
     }
 
     #[test]

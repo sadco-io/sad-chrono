@@ -1,6 +1,8 @@
 //! Benchmarks for chrono that just depend on std
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 #[cfg(feature = "unstable-locales")]
 use chrono::Locale;
