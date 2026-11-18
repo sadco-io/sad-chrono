@@ -2,7 +2,11 @@
 
 ## Supported Versions
 
-Security updates are applied only to the most recent release.
+| Version | Supported | Notes |
+|---------|-----------|-------|
+| `0.5.x` | All fixes | Current release line. The `tzdata` 1 MiB caps and regular-file guard from 0.4.47 are planned for the next 0.5.x release. |
+| `0.4.x` | Security fixes only | Maintained on the `0.4.x` branch. `0.4.47` includes the `tzdata` allocation bound (with 1 MiB caps and regular-file guard), value-invariant `rkyv` validation for `NaiveDate`, `NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek`, saturating `From<DateTime<Tz>> for SystemTime`, and `format()` `# Panics` docs. Only the `rkyv` 0.8 upgrade (RUSTSEC-2026-0235) and `DateTime<Tz>` local-time range validation are `0.5`-only. |
+| `< 0.4.46` | No | Upgrade to `0.5.x` or `0.4.x` |
 
 ## Scope
 

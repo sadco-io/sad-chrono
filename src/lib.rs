@@ -6,13 +6,15 @@
 //! `chrono::` paths unchanged, rename the dependency:
 //!
 //! ```toml
-//! chrono = { package = "sad-chrono", version = "0.4.46" }
+//! chrono = { package = "sad-chrono", version = "0.4.47" }
 //! ```
 //!
 //! Note that `sad_chrono` types are distinct from upstream `chrono` types: if a dependency
 //! exposes `chrono` types in its public API, replace `chrono` across the entire dependency graph
 //! (see the README's *Transitive dependencies* section). Library authors should also see the
-//! README's *For library authors* and *Stability and versioning* sections.
+//! README's *For library authors* and *Stability and versioning* sections. `sad-chrono` `0.5.x`
+//! (MSRV 1.85, `rkyv` 0.8) is the recommended line; this `0.4.x` line receives security fixes
+//! only.
 //!
 //! [chrono]: https://github.com/chronotope/chrono
 //!
@@ -64,8 +66,13 @@
 //! - `rkyv-validation`: Enable rkyv validation support using `bytecheck`. The `rkyv*` features
 //!   stay on unmaintained rkyv 0.7 for `0.4` compatibility and are affected by
 //!   [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235) (out-of-bounds reads
-//!   when validating untrusted `Rc`, `Arc`, or weak pointers to unsized data); sad-chrono's
-//!   archived types contain no shared pointers, so review the advisory if you validate your own.
+//!   when validating untrusted `Rc`, `Arc`, or weak pointers to unsized data); `sad-chrono`'s
+//!   archived types contain no shared pointers, so review the advisory if you validate your own,
+//!   while `0.5.x` uses `rkyv` 0.8.18. As of `0.4.47`, validation checks value invariants of
+//!   `sad-chrono`'s archived types (`NaiveDate`, `NaiveTime`, `TimeDelta`, `FixedOffset`, and
+//!   `IsoWeek`), except the local-time range of `DateTime<Tz>`: before calling local-time methods
+//!   such as `naive_local()` on a deserialized `DateTime<Tz>`, check
+//!   `dt.naive_utc().checked_add_offset(dt.offset().fix()).is_some()` (with [`Offset`] in scope).
 //! - `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 //! - `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
 //!   The implementation and API may change or even be removed in a patch release. Feedback welcome.
@@ -301,7 +308,7 @@
 //! additional C library. This functionality is under the feature `unstable-locales`:
 //!
 //! ```toml
-//! sad-chrono = { version = "0.4.46", features = ["unstable-locales"] }
+//! sad-chrono = { version = "0.4.47", features = ["unstable-locales"] }
 //! ```
 //!
 //! The `unstable-locales` feature requires and implies at least the `alloc` feature.
