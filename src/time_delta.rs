@@ -411,10 +411,10 @@ impl TimeDelta {
         let (extra_secs, nanos) = div_mod_floor_64(total_nanos, NANOS_PER_SEC as i64);
         // Multiply seconds as i128 to prevent overflow
         let secs: i128 = self.secs as i128 * rhs as i128 + extra_secs as i128;
-        if secs <= i64::MIN as i128 || secs >= i64::MAX as i128 {
+        if secs < MIN.secs as i128 || secs > MAX.secs as i128 {
             return None;
-        };
-        Some(TimeDelta { secs: secs as i64, nanos: nanos as i32 })
+        }
+        TimeDelta::new(secs as i64, nanos as u32)
     }
 
     /// Divide a `TimeDelta` with a i32, returning `None` if dividing by 0.
@@ -529,6 +529,10 @@ impl Neg for TimeDelta {
     }
 }
 
+/// # Panics
+///
+/// Panics if the resulting `TimeDelta` would overflow or underflow.
+/// Consider using [`TimeDelta::checked_add`] to get an `Option` instead.
 impl Add for TimeDelta {
     type Output = TimeDelta;
 
@@ -538,6 +542,10 @@ impl Add for TimeDelta {
     }
 }
 
+/// # Panics
+///
+/// Panics if the resulting `TimeDelta` would overflow or underflow.
+/// Consider using [`TimeDelta::checked_sub`] to get an `Option` instead.
 impl Sub for TimeDelta {
     type Output = TimeDelta;
 
@@ -547,6 +555,10 @@ impl Sub for TimeDelta {
     }
 }
 
+/// # Panics
+///
+/// Panics if the resulting `TimeDelta` would overflow or underflow.
+/// Consider using [`TimeDelta::checked_add`] to get an `Option` instead.
 impl AddAssign for TimeDelta {
     #[track_caller]
     fn add_assign(&mut self, rhs: TimeDelta) {
@@ -555,6 +567,10 @@ impl AddAssign for TimeDelta {
     }
 }
 
+/// # Panics
+///
+/// Panics if the resulting `TimeDelta` would overflow or underflow.
+/// Consider using [`TimeDelta::checked_sub`] to get an `Option` instead.
 impl SubAssign for TimeDelta {
     #[track_caller]
     fn sub_assign(&mut self, rhs: TimeDelta) {
@@ -563,6 +579,10 @@ impl SubAssign for TimeDelta {
     }
 }
 
+/// # Panics
+///
+/// Panics if the resulting `TimeDelta` would overflow or underflow.
+/// Consider using [`TimeDelta::checked_mul`] to get an `Option` instead.
 impl Mul<i32> for TimeDelta {
     type Output = TimeDelta;
 
@@ -572,6 +592,10 @@ impl Mul<i32> for TimeDelta {
     }
 }
 
+/// # Panics
+///
+/// Panics if `rhs` is zero.
+/// Consider using [`TimeDelta::checked_div`] to get an `Option` instead.
 impl Div<i32> for TimeDelta {
     type Output = TimeDelta;
 
@@ -581,12 +605,18 @@ impl Div<i32> for TimeDelta {
     }
 }
 
+/// # Panics
+///
+/// Panics if any intermediate or final sum overflows or underflows `TimeDelta` bounds.
 impl<'a> core::iter::Sum<&'a TimeDelta> for TimeDelta {
     fn sum<I: Iterator<Item = &'a TimeDelta>>(iter: I) -> TimeDelta {
         iter.fold(TimeDelta::zero(), |acc, x| acc + *x)
     }
 }
 
+/// # Panics
+///
+/// Panics if any intermediate or final sum overflows or underflows `TimeDelta` bounds.
 impl core::iter::Sum<TimeDelta> for TimeDelta {
     fn sum<I: Iterator<Item = TimeDelta>>(iter: I) -> TimeDelta {
         iter.fold(TimeDelta::zero(), |acc, x| acc + x)
@@ -1486,6 +1516,215 @@ mod tests {
             assert!(rkyv::check_archived_root::<TimeDelta>(&tampered).is_err());
             assert!(rkyv::from_bytes::<TimeDelta>(&tampered).is_err());
         }
+    }
+
+    #[test]
+    fn test_duration_checked_mul_bounds() {
+        assert_eq!(MAX.checked_mul(2), None);
+        assert_eq!(MIN.checked_mul(2), None);
+        assert_eq!(MAX.checked_mul(1), Some(MAX));
+        assert_eq!(MIN.checked_mul(1), Some(MIN));
+        assert_eq!(MAX.checked_mul(-1), Some(MIN));
+        assert_eq!(MIN.checked_mul(-1), Some(MAX));
+        assert_eq!(MAX.checked_mul(0), Some(TimeDelta::zero()));
+        assert_eq!(MIN.checked_mul(0), Some(TimeDelta::zero()));
+        assert_eq!(MAX.checked_mul(i32::MAX), None);
+        assert_eq!(MAX.checked_mul(i32::MIN), None);
+        assert_eq!(MIN.checked_mul(i32::MAX), None);
+        assert_eq!(MIN.checked_mul(i32::MIN), None);
+
+        // Near-boundary nanos when secs lands on MAX.secs / MIN.secs
+        let half_max_exact = TimeDelta::new(MAX.secs / 2, 903_500_000).unwrap();
+        assert_eq!(half_max_exact.checked_mul(2), Some(MAX));
+        let half_max_over = TimeDelta::new(MAX.secs / 2, 903_500_001).unwrap();
+        assert_eq!(half_max_over.checked_mul(2), None);
+
+        let half_min_exact = TimeDelta::new(MIN.secs / 2, 96_500_000).unwrap();
+        assert_eq!(half_min_exact.checked_mul(2), Some(MIN));
+        let half_min_under = TimeDelta::new(MIN.secs / 2, 96_499_999).unwrap();
+        assert_eq!(half_min_under.checked_mul(2), None);
+    }
+
+    #[test]
+    fn test_duration_checked_div_edges() {
+        assert_eq!(MIN.checked_div(-1), Some(MAX));
+        assert_eq!(MAX.checked_div(-1), Some(MIN));
+        assert_eq!(MIN.checked_div(1), Some(MIN));
+        assert_eq!(MAX.checked_div(1), Some(MAX));
+        assert_eq!(MIN.checked_div(0), None);
+        assert_eq!(MAX.checked_div(0), None);
+        assert_eq!(MIN.abs(), MAX);
+        assert_eq!(MAX.abs(), MAX);
+        assert_eq!(-MIN, MAX);
+        assert_eq!(-MAX, MIN);
+    }
+
+    #[test]
+    #[should_panic(expected = "`TimeDelta * i32` overflowed")]
+    fn test_duration_mul_max_overflow_panic() {
+        let _ = MAX * 2;
+    }
+
+    #[test]
+    #[should_panic(expected = "`TimeDelta * i32` overflowed")]
+    fn test_duration_mul_min_overflow_panic() {
+        let _ = MIN * 2;
+    }
+
+    #[test]
+    #[should_panic(expected = "`TimeDelta * i32` overflowed")]
+    fn test_duration_mul_near_max_overflow_panic() {
+        let half_max_over = TimeDelta::new(MAX.secs / 2, 903_500_001).unwrap();
+        let _ = half_max_over * 2;
+    }
+
+    #[test]
+    #[should_panic(expected = "`TimeDelta + TimeDelta` overflowed")]
+    fn test_duration_add_max_overflow_panic() {
+        let _ = MAX + TimeDelta::nanoseconds(1);
+    }
+
+    #[test]
+    #[should_panic(expected = "`TimeDelta - TimeDelta` overflowed")]
+    fn test_duration_sub_min_overflow_panic() {
+        let _ = MIN - TimeDelta::nanoseconds(1);
+    }
+
+    #[test]
+    #[should_panic(expected = "`i32` is zero")]
+    fn test_duration_div_zero_panic() {
+        let _ = TimeDelta::seconds(1) / 0;
+    }
+
+    #[test]
+    #[should_panic(expected = "`TimeDelta + TimeDelta` overflowed")]
+    fn test_duration_sum_overflow_panic() {
+        let _ = [MAX, TimeDelta::nanoseconds(1)].into_iter().sum::<TimeDelta>();
+    }
+
+    #[test]
+    fn test_duration_checked_mul_div_invariant_grid() {
+        let values = [
+            MIN,
+            MIN + TimeDelta::nanoseconds(1),
+            TimeDelta::new(MIN.secs / 2, 96_499_999).unwrap(),
+            TimeDelta::new(MIN.secs / 2, 96_500_000).unwrap(),
+            TimeDelta::seconds(-1),
+            TimeDelta::nanoseconds(-1),
+            TimeDelta::zero(),
+            TimeDelta::nanoseconds(1),
+            TimeDelta::seconds(1),
+            TimeDelta::new(MAX.secs / 2, 903_500_000).unwrap(),
+            TimeDelta::new(MAX.secs / 2, 903_500_001).unwrap(),
+            MAX - TimeDelta::nanoseconds(1),
+            MAX,
+        ];
+        let factors = [-2, -1, 0, 1, 2, i32::MAX, i32::MIN];
+
+        for v in values {
+            for f in factors {
+                if let Some(res) = v.checked_mul(f) {
+                    assert!(res >= MIN && res <= MAX, "mul out of range: {v:?} * {f} = {res:?}");
+                    assert!(res.nanos >= 0 && res.nanos < super::NANOS_PER_SEC);
+                    let _ = res.num_milliseconds();
+                }
+                if let Some(res) = v.checked_div(f) {
+                    assert!(res >= MIN && res <= MAX, "div out of range: {v:?} / {f} = {res:?}");
+                    assert!(res.nanos >= 0 && res.nanos < super::NANOS_PER_SEC);
+                    let _ = res.num_milliseconds();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_duration_checked_mul_matches_0447_on_valid_results() {
+        // 0.4.47 implementation: identical arithmetic, i64 guard only, no [MIN, MAX] check.
+        fn mul_0447(d: TimeDelta, rhs: i32) -> Option<(i64, i32)> {
+            let total_nanos = d.nanos as i64 * rhs as i64;
+            let (extra_secs, nanos) =
+                super::div_mod_floor_64(total_nanos, super::NANOS_PER_SEC as i64);
+            let secs: i128 = d.secs as i128 * rhs as i128 + extra_secs as i128;
+            if secs <= i64::MIN as i128 || secs >= i64::MAX as i128 {
+                return None;
+            }
+            Some((secs as i64, nanos as i32))
+        }
+        let in_range =
+            |(s, n): (i64, i32)| (MIN.secs, MIN.nanos) <= (s, n) && (s, n) <= (MAX.secs, MAX.nanos);
+
+        let mut values = vec![
+            MIN,
+            MAX,
+            TimeDelta::zero(),
+            TimeDelta::nanoseconds(1),
+            TimeDelta::nanoseconds(-1),
+            TimeDelta::seconds(1),
+            TimeDelta::seconds(-1),
+            MIN + TimeDelta::nanoseconds(1),
+            MAX - TimeDelta::nanoseconds(1),
+        ];
+        let mut factors = vec![
+            0,
+            1,
+            -1,
+            2,
+            -2,
+            3,
+            -3,
+            1000,
+            -1000,
+            i32::MAX,
+            i32::MIN,
+            i32::MAX - 1,
+            i32::MIN + 1,
+        ];
+        // Deterministic xorshift over all magnitudes.
+        let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        for _ in 0..2000 {
+            let r = next();
+            let secs = (r as i64) >> (r % 64) as u32; // spread magnitudes
+            let secs = secs.clamp(MIN.secs, MAX.secs);
+            let nanos = (next() % 1_000_000_000) as u32;
+            if let Some(d) = TimeDelta::new(secs, nanos) {
+                values.push(d);
+            }
+            let f = next();
+            factors.push(((f as i64) >> (f % 32) as u32) as i32);
+        }
+        let mut valid = 0u32;
+        for &v in &values {
+            for &f in &factors {
+                let new = v.checked_mul(f).map(|d| (d.secs, d.nanos));
+                match mul_0447(v, f) {
+                    Some(old) if in_range(old) => {
+                        valid += 1;
+                        assert_eq!(new, Some(old), "{v:?} * {f}");
+                    }
+                    _ => assert_eq!(new, None, "{v:?} * {f}"),
+                }
+            }
+        }
+        assert!(valid > 100_000, "too few valid products: {valid}");
+    }
+
+    #[test]
+    fn test_duration_checked_mul_extreme_factor_valid() {
+        assert_eq!(
+            TimeDelta::seconds(1).checked_mul(i32::MIN),
+            Some(TimeDelta::seconds(i32::MIN as i64))
+        );
+        assert_eq!(
+            TimeDelta::nanoseconds(-1).checked_mul(i32::MIN),
+            Some(TimeDelta::nanoseconds(1 << 31))
+        );
+        assert_eq!(TimeDelta::seconds(1 << 33).checked_mul(i32::MIN), None); // wraps to 0 if truncated
     }
 }
 
