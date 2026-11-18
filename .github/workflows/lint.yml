@@ -6,7 +6,7 @@ env:
 
 on:
   push:
-    branches: [main, 0.5.x]
+    branches: [main, 0.4.x]
   pull_request:
 
 permissions:
@@ -17,12 +17,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
           targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo fmt --check -- --color=always
       - run: cargo fmt --check --manifest-path fuzz/Cargo.toml
       - run: cargo fmt --check --manifest-path bench/Cargo.toml
@@ -44,15 +47,21 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2
 
   check-doc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install --locked cargo-deadlinks
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+      - run: cargo install --locked cargo-deadlinks@0.8.1
       - run: cargo deadlinks -- ${{ env.ALL_NON_EXCLUSIVE_FEATURES }}
       - run: cargo doc ${{ env.ALL_NON_EXCLUSIVE_FEATURES }} --no-deps
         env:
@@ -61,26 +70,33 @@ jobs:
   cffconvert:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: citation-file-format/cffconvert-github-action@2.0.0
+      - uses: citation-file-format/cffconvert-github-action@4cf11baa70a673bfdf9dad0acc7ee33b3f4b6084 # 2.0.0
         with:
           args: --validate
 
   semver:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # Keep rust-toolchain and cargo-semver-checks pinned together:
       # cargo-semver-checks only reads the rustdoc JSON formats it was built for.
-      - uses: dtolnay/rust-toolchain@1.100.0
-      - uses: taiki-e/install-action@v2
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: 1.100.0
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: cargo-semver-checks@0.51.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: grep -qx 'rust-version = "1.62.0"' Cargo.toml
       - run: |
-          git clone --depth 1 --branch v0.4.45 https://github.com/chronotope/chrono "$RUNNER_TEMP/chrono-0.4.45"
+          git init "$RUNNER_TEMP/chrono-0.4.45"
+          git -C "$RUNNER_TEMP/chrono-0.4.45" fetch --depth 1 https://github.com/chronotope/chrono 170338250e836976a211e64728ec956e45e78a39
+          git -C "$RUNNER_TEMP/chrono-0.4.45" checkout FETCH_HEAD
           python3 -c '
           import os
           from pathlib import Path
@@ -93,13 +109,31 @@ jobs:
           cargo semver-checks check-release --baseline-root "$RUNNER_TEMP/chrono-0.4.45" --default-features
           cargo semver-checks check-release --baseline-root "$RUNNER_TEMP/chrono-0.4.45" \
             --only-explicit-features --features default,unstable-locales,rkyv-64,rkyv-validation,serde,arbitrary
+      # cargo-semver-checks picks the newest published version that is not newer
+      # than the crate's version, so 0.4.47 is checked against 0.4.46, not 0.5.0.
+      - run: |
+          cargo semver-checks check-release --release-type patch --default-features
+          cargo semver-checks check-release --release-type patch --only-explicit-features --features default,unstable-locales,rkyv-64,rkyv-validation,serde,arbitrary
+      # With 0.4.47 as the baseline, any API addition shows up as a removal,
+      # so the 0.4.x surface stays frozen at 0.4.46.
+      - run: |
+          git init "$RUNNER_TEMP/sad-chrono-0.4.46"
+          git -C "$RUNNER_TEMP/sad-chrono-0.4.46" fetch --depth 1 https://github.com/sadco-io/sad-chrono ad6a4a02bc5190ef4fb0d29d77cff179fd63cca6
+          git -C "$RUNNER_TEMP/sad-chrono-0.4.46" checkout FETCH_HEAD
+          cargo semver-checks check-release --manifest-path "$RUNNER_TEMP/sad-chrono-0.4.46/Cargo.toml" --baseline-root . --release-type patch --default-features
+          cargo semver-checks check-release --manifest-path "$RUNNER_TEMP/sad-chrono-0.4.46/Cargo.toml" --baseline-root . --release-type patch \
+            --only-explicit-features --features default,unstable-locales,rkyv-64,rkyv-validation,serde,arbitrary
 
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: |
           files=$(cargo package --list)
           for required in NOTICE SECURITY.md LICENSE.txt README.md src/lib.rs; do
