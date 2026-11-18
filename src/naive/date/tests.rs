@@ -944,6 +944,15 @@ fn test_rkyv_validation() {
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&date_max).unwrap();
     assert_eq!(rkyv::from_bytes::<NaiveDate, rkyv::rancor::Error>(&bytes).unwrap(), date_max);
 
+    for (y, m, d) in [(2024, 12, 31), (2000, 12, 31), (1900, 12, 31)] {
+        let valid = NaiveDate::from_ymd_opt(y, m, d).unwrap();
+        let valid_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&valid).unwrap();
+        assert_eq!(
+            rkyv::from_bytes::<NaiveDate, rkyv::rancor::Error>(&valid_bytes).unwrap(),
+            valid
+        );
+    }
+
     // ArchivedNaiveDate is #[repr(C)] { yof: ArchivedNonZeroI32 } (4-byte little-endian i32 at offset 0).
     let yof_offset = core::mem::offset_of!(super::ArchivedNaiveDate, yof);
     let flags_2024 = YearFlags::from_year(2024).0 as i32;
@@ -971,6 +980,35 @@ fn test_rkyv_validation() {
             "expected error for yof {bad_yof:#x}"
         );
     }
+}
+
+#[test]
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
+fn test_rkyv_fail_closed_without_validation_feature() {
+    use core::mem::MaybeUninit;
+    use rkyv::{
+        api::low::{from_bytes, to_bytes_in_with_alloc},
+        ser::{allocator::SubAllocator, writer::Buffer},
+        util::Align,
+    };
+
+    let mut output = Align([MaybeUninit::<u8>::uninit(); 16]);
+    let mut alloc = [MaybeUninit::<u8>::uninit(); 16];
+    let valid = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
+    let written = to_bytes_in_with_alloc::<_, _, rkyv::rancor::Error>(
+        &valid,
+        Buffer::from(&mut *output),
+        SubAllocator::new(&mut alloc),
+    )
+    .unwrap();
+    assert_eq!(from_bytes::<NaiveDate, rkyv::rancor::Error>(&written).unwrap(), valid);
+
+    let mut tampered = Align([0u8; 4]);
+    let yof_offset = core::mem::offset_of!(super::ArchivedNaiveDate, yof);
+    let flags_2024 = YearFlags::from_year(2024).0 as i32;
+    let bad_yof = (2024 << 13) | (511 << 4) | flags_2024;
+    tampered[yof_offset..yof_offset + 4].copy_from_slice(&bad_yof.to_le_bytes());
+    assert!(from_bytes::<NaiveDate, rkyv::rancor::Error>(&tampered[..]).is_err());
 }
 
 //   MAX_YEAR-12-31 minus 0000-01-01

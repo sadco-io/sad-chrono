@@ -2026,4 +2026,57 @@ fn test_rkyv_validation() {
     let mut bad_offset = bytes;
     bad_offset[tz_offset..tz_offset + 4].copy_from_slice(&86_400i32.to_le_bytes());
     assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bad_offset).is_err());
+
+    // Valid UTC and FixedOffset extremes (local time within NaiveDateTime::MIN..=MAX).
+    for dt in [DateTime::<Utc>::MIN_UTC, DateTime::<Utc>::MAX_UTC] {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&dt).unwrap();
+        assert_eq!(rkyv::from_bytes::<DateTime<Utc>, rkyv::rancor::Error>(&bytes).unwrap(), dt);
+    }
+
+    let east_max = FixedOffset::east_opt(86_399).unwrap();
+    let west_max = FixedOffset::east_opt(-86_399).unwrap();
+    for dt in [
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(
+            NaiveDateTime::MAX - TimeDelta::seconds(86_399),
+            east_max,
+        ),
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MAX, west_max),
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(
+            NaiveDateTime::MIN + TimeDelta::seconds(86_399),
+            west_max,
+        ),
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MIN, east_max),
+    ] {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&dt).unwrap();
+        assert_eq!(
+            rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bytes).unwrap(),
+            dt
+        );
+    }
+
+    // Security PoC: valid NaiveDateTime + valid FixedOffset whose local time overflows NaiveDateTime.
+    for out_of_range in [
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MAX, east_max),
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(NaiveDateTime::MIN, west_max),
+    ] {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&out_of_range).unwrap();
+        assert!(rkyv::from_bytes::<DateTime<FixedOffset>, rkyv::rancor::Error>(&bytes).is_err());
+    }
+
+    #[cfg(feature = "clock")]
+    {
+        let valid_local = DateTime::<Local>::from_naive_utc_and_offset(
+            NaiveDate::from_ymd_opt(2024, 2, 29).unwrap().and_hms_opt(12, 34, 56).unwrap(),
+            east_max,
+        );
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&valid_local).unwrap();
+        assert_eq!(
+            rkyv::from_bytes::<DateTime<Local>, rkyv::rancor::Error>(&bytes).unwrap(),
+            valid_local
+        );
+
+        let oob_local = DateTime::<Local>::from_naive_utc_and_offset(NaiveDateTime::MAX, east_max);
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&oob_local).unwrap();
+        assert!(rkyv::from_bytes::<DateTime<Local>, rkyv::rancor::Error>(&bytes).is_err());
+    }
 }

@@ -50,7 +50,7 @@ mod tests;
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
-    rkyv(compare(PartialEq, PartialOrd))
+    rkyv(compare(PartialEq, PartialOrd), bytecheck(verify))
 )]
 pub struct DateTime<Tz: TimeZone> {
     datetime: NaiveDateTime,
@@ -1879,6 +1879,53 @@ where
             .field("datetime", &self.datetime)
             .field("offset", &self.offset)
             .finish()
+    }
+}
+
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
+mod verify {
+    use core::{error::Error, fmt};
+
+    use rkyv::{
+        Archive,
+        api::low::deserialize,
+        bytecheck::Verify,
+        rancor::{Failure, Fallible, Source, fail},
+    };
+
+    use super::ArchivedDateTime;
+    use crate::NaiveDateTime;
+    use crate::offset::{ArchivedOffsetSecs, FixedOffset, TimeZone};
+
+    #[derive(Debug)]
+    struct InvalidDateTimeError;
+
+    impl fmt::Display for InvalidDateTimeError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("archived DateTime local time is out of range")
+        }
+    }
+
+    impl Error for InvalidDateTimeError {}
+
+    unsafe impl<C: Fallible + ?Sized, Tz: TimeZone> Verify<C> for ArchivedDateTime<Tz>
+    where
+        C::Error: Source,
+        Tz::Offset: Archive,
+        <Tz::Offset as Archive>::Archived: ArchivedOffsetSecs,
+    {
+        fn verify(&self, _: &mut C) -> Result<(), C::Error> {
+            let Ok(utc) = deserialize::<NaiveDateTime, Failure>(&self.datetime) else {
+                fail!(InvalidDateTimeError);
+            };
+            let Some(offset) = FixedOffset::east_opt(self.offset.local_minus_utc()) else {
+                fail!(InvalidDateTimeError);
+            };
+            if utc.checked_add_offset(offset).is_none() {
+                fail!(InvalidDateTimeError);
+            }
+            Ok(())
+        }
     }
 }
 

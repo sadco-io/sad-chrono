@@ -57,15 +57,9 @@ const SECS_PER_WEEK: i64 = 604_800;
     derive(Archive, Deserialize, Serialize),
     rkyv(
         compare(PartialEq, PartialOrd),
-        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)),
+        bytecheck(verify)
     )
-)]
-#[cfg_attr(
-    all(
-        feature = "rkyv-validation",
-        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-    ),
-    rkyv(bytecheck(verify))
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeDelta {
@@ -85,10 +79,7 @@ pub(crate) const MAX: TimeDelta = TimeDelta {
     nanos: (i64::MAX % MILLIS_PER_SEC) as i32 * NANOS_PER_MILLI,
 };
 
-#[cfg(all(
-    feature = "rkyv-validation",
-    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-))]
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
 mod verify {
     use core::{error::Error, fmt};
 

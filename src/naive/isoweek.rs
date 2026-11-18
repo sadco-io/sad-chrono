@@ -22,15 +22,9 @@ use rkyv::{Archive, Deserialize, Serialize};
     derive(Archive, Deserialize, Serialize),
     rkyv(
         compare(PartialEq, PartialOrd),
-        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)),
+        bytecheck(verify)
     )
-)]
-#[cfg_attr(
-    all(
-        feature = "rkyv-validation",
-        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-    ),
-    rkyv(bytecheck(verify))
 )]
 pub struct IsoWeek {
     // Note that this allows for larger year range than `NaiveDate`.
@@ -183,10 +177,7 @@ impl defmt::Format for IsoWeek {
     }
 }
 
-#[cfg(all(
-    feature = "rkyv-validation",
-    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-))]
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
 mod verify {
     use core::{error::Error, fmt};
 
@@ -234,7 +225,10 @@ mod verify {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "rkyv-validation")]
+    #[cfg(all(
+        feature = "rkyv-validation",
+        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
+    ))]
     use super::IsoWeek;
     use crate::Datelike;
     use crate::naive::date::{self, NaiveDate};
@@ -304,6 +298,11 @@ mod tests {
         let maxweek = NaiveDate::MAX.iso_week();
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&maxweek).unwrap();
         assert_eq!(rkyv::from_bytes::<IsoWeek, rkyv::rancor::Error>(&bytes).unwrap(), maxweek);
+
+        let w53 = NaiveDate::from_ymd_opt(2020, 12, 31).unwrap().iso_week();
+        assert_eq!(w53.week(), 53);
+        let w53_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&w53).unwrap();
+        assert_eq!(rkyv::from_bytes::<IsoWeek, rkyv::rancor::Error>(&w53_bytes).unwrap(), w53);
 
         // ArchivedIsoWeek is #[repr(C)] { ywf: ArchivedI32 (0..4) }.
         let ywf_offset = core::mem::offset_of!(super::ArchivedIsoWeek, ywf);

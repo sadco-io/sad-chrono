@@ -215,15 +215,9 @@ mod tests;
     derive(Archive, Deserialize, Serialize),
     rkyv(
         compare(PartialEq, PartialOrd),
-        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)),
+        bytecheck(verify)
     )
-)]
-#[cfg_attr(
-    all(
-        feature = "rkyv-validation",
-        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-    ),
-    rkyv(bytecheck(verify))
 )]
 pub struct NaiveTime {
     secs: u32,
@@ -1696,10 +1690,7 @@ impl Default for NaiveTime {
     }
 }
 
-#[cfg(all(
-    feature = "rkyv-validation",
-    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-))]
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
 mod verify {
     use core::{error::Error, fmt};
 
@@ -1708,7 +1699,7 @@ mod verify {
         rancor::{Fallible, Source, fail},
     };
 
-    use super::{ArchivedNaiveTime, NaiveTime};
+    use super::ArchivedNaiveTime;
 
     #[derive(Debug)]
     struct InvalidNaiveTimeError;
@@ -1728,7 +1719,7 @@ mod verify {
         fn verify(&self, _: &mut C) -> Result<(), C::Error> {
             let secs = self.secs.to_native();
             let frac = self.frac.to_native();
-            if NaiveTime::from_num_seconds_from_midnight_opt(secs, frac).is_none() {
+            if secs >= 86_400 || frac >= 2_000_000_000 {
                 fail!(InvalidNaiveTimeError);
             }
             Ok(())

@@ -29,10 +29,12 @@ oldtime = []
 wasmbind = ["wasm-bindgen", "js-sys"]
 unstable-locales = ["pure-rust-locales"]
 # Note that rkyv-16, rkyv-32, and rkyv-64 are mutually exclusive.
-rkyv = ["dep:rkyv", "rkyv/pointer_width_32"]
-rkyv-16 = ["dep:rkyv", "rkyv?/pointer_width_16"]
-rkyv-32 = ["dep:rkyv", "rkyv?/pointer_width_32"]
-rkyv-64 = ["dep:rkyv", "rkyv?/pointer_width_64"]
+rkyv = ["dep:rkyv", "rkyv/pointer_width_32", "rkyv/bytecheck"]
+rkyv-16 = ["dep:rkyv", "rkyv?/pointer_width_16", "rkyv?/bytecheck"]
+rkyv-32 = ["dep:rkyv", "rkyv?/pointer_width_32", "rkyv?/bytecheck"]
+rkyv-64 = ["dep:rkyv", "rkyv?/pointer_width_64", "rkyv?/bytecheck"]
+# Compatibility feature: semantic validation is always active whenever rkyv CheckBytes is enabled;
+# this additionally enables rkyv/alloc (needed for helpers like to_bytes/from_bytes).
 rkyv-validation = ["dep:rkyv", "rkyv?/bytecheck", "rkyv?/alloc"]
 # Features for internal use only:
 __internal_bench = []

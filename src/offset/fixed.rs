@@ -23,14 +23,11 @@ use crate::naive::{NaiveDate, NaiveDateTime};
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
-    rkyv(compare(PartialEq), attr(derive(Clone, Copy, PartialEq, Eq, Hash, Debug)))
-)]
-#[cfg_attr(
-    all(
-        feature = "rkyv-validation",
-        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-    ),
-    rkyv(bytecheck(verify))
+    rkyv(
+        compare(PartialEq),
+        attr(derive(Clone, Copy, PartialEq, Eq, Hash, Debug)),
+        bytecheck(verify)
+    )
 )]
 pub struct FixedOffset {
     local_minus_utc: i32,
@@ -206,10 +203,17 @@ impl arbitrary::Arbitrary<'_> for FixedOffset {
     }
 }
 
-#[cfg(all(
-    feature = "rkyv-validation",
-    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-))]
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
+impl super::verify_seal::Sealed for ArchivedFixedOffset {}
+
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
+impl super::ArchivedOffsetSecs for ArchivedFixedOffset {
+    fn local_minus_utc(&self) -> i32 {
+        self.local_minus_utc.to_native()
+    }
+}
+
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
 mod verify {
     use core::{error::Error, fmt};
 
@@ -293,9 +297,20 @@ mod tests {
         any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
     ))]
     fn test_rkyv_validation() {
+        for offset in [
+            FixedOffset::from_str("-0500").unwrap(),
+            FixedOffset::east_opt(86_399).unwrap(),
+            FixedOffset::east_opt(-86_399).unwrap(),
+        ] {
+            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&offset).unwrap();
+            assert_eq!(
+                rkyv::from_bytes::<FixedOffset, rkyv::rancor::Error>(&bytes).unwrap(),
+                offset
+            );
+        }
+
         let offset = FixedOffset::from_str("-0500").unwrap();
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&offset).unwrap();
-        assert_eq!(rkyv::from_bytes::<FixedOffset, rkyv::rancor::Error>(&bytes).unwrap(), offset);
 
         // ArchivedFixedOffset is #[repr(C)] { local_minus_utc: ArchivedI32 (0..4) }.
         let field_offset = core::mem::offset_of!(super::ArchivedFixedOffset, local_minus_utc);

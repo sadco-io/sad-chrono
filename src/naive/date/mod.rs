@@ -97,15 +97,9 @@ mod tests;
     derive(Archive, Deserialize, Serialize),
     rkyv(
         compare(PartialEq, PartialOrd),
-        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash))
+        attr(derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)),
+        bytecheck(verify)
     )
-)]
-#[cfg_attr(
-    all(
-        feature = "rkyv-validation",
-        any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-    ),
-    rkyv(bytecheck(verify))
 )]
 pub struct NaiveDate {
     yof: NonZeroI32, // (year << 13) | of
@@ -2668,10 +2662,7 @@ mod serde {
     }
 }
 
-#[cfg(all(
-    feature = "rkyv-validation",
-    any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64")
-))]
+#[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
 mod verify {
     use core::{error::Error, fmt};
 
