@@ -31,13 +31,14 @@ ships those fixes, and takes on new ones. It is maintained by the Sadco Security
   `chrono 0.4.x` builds that cannot move (also used by the transitive-dependency `[patch]` route
   below).
 
-`sad-chrono 0.4.48` includes the non-blocking `TZ`/TZif and `tzdata` open (`O_NONBLOCK` on the
-Unix targets listed under [Security and robustness fixes](#security-and-robustness-fixes)) and the
-`TimeDelta::checked_mul` range fix from 0.5.1; the `tzdata` allocation bound from 0.5.0, with the
-absolute 1 MiB caps and regular-file guard added in 0.4.47 (and ported to 0.5.1); value-invariant
-`rkyv` 0.7 validation for `NaiveDate`, `NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek`
-(added in 0.4.47); and the saturating `From<DateTime<Tz>> for SystemTime` conversion and the
-`format()` `# Panics` documentation from 0.5.0. Only the `rkyv` 0.8 upgrade
+`sad-chrono 0.4.48` adds the non-blocking `TZ`/TZif and `tzdata` open (`O_NONBLOCK` on the Unix
+targets listed under [Security and robustness fixes](#security-and-robustness-fixes)) and the
+`TimeDelta::checked_mul` range fix, both backported from 0.5.1. It keeps everything in 0.4.47: the
+`tzdata` allocation bound (backported from 0.5.0) with the absolute 1 MiB caps and regular-file
+guard (new in 0.4.47, ported to 0.5.1); value-invariant `rkyv` 0.7 validation for `NaiveDate`,
+`NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek` (new in 0.4.47); and the saturating
+`From<DateTime<Tz>> for SystemTime` conversion and the `format()` `# Panics` documentation
+(backported from 0.5.0). Only the `rkyv` 0.8 upgrade
 ([RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235)) and validation of an
 archived `DateTime<Tz>`'s local-time range (which would require trait bounds that change the `0.4`
 API) are `0.5`-only.
@@ -108,8 +109,8 @@ chrono = { path = "vendor/chrono" }
 ```
 
 Then run `cargo update -p chrono`, and verify that `cargo tree -i chrono` shows
-`chrono v0.4.48 (vendor/chrono)`. Keep your own dependency as plain `chrono = "0.4"` without the
-package rename so that all crates share one `DateTime` type.
+`chrono v0.4.48 (/path/to/your/workspace/vendor/chrono)`. Keep your own dependency as plain
+`chrono = "0.4"` without the package rename so that all crates share one `DateTime` type.
 
 Constraints:
 

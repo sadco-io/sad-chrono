@@ -15,8 +15,8 @@ from, as `chrono#NNNN`.
 Security release on the 0.4 maintenance line. It is API-compatible with
 0.4.47, and the MSRV (1.62.0) and rkyv 0.7 are unchanged. When a product falls
 outside the `TimeDelta` range, `TimeDelta::checked_mul` now returns `None` and
-`TimeDelta * i32` now panics. On the Unix targets listed below, time zone
-loading also no longer waits for a FIFO writer.
+`TimeDelta * i32` now panics. On the Unix targets listed below, opening TZif
+and `tzdata` files also no longer waits for a FIFO writer.
 [`sad-chrono 0.5.1`](https://github.com/sadco-io/sad-chrono/releases/tag/v0.5.1)
 (MSRV 1.85, rkyv 0.8) is the recommended line; `0.4.x` receives security
 fixes only.
