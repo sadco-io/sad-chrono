@@ -10,6 +10,126 @@ earlier ones further down this file.
 Entries reference the upstream chrono pull request or issue each change came
 from, as `chrono#NNNN`.
 
+## sad-chrono 0.5.1
+
+Patch release on the 0.5 line. Public API, MSRV (Rust 1.85.0), and serde/rkyv
+wire formats are unchanged from `0.5.0`.
+
+### Security and robustness
+
+* Android and OpenHarmony `tzdata`: cap index-region and per-entry lengths at
+  1 MiB before allocating, and require the `tzdata` path to be a regular file
+  (ported from `0.4.47`; strengthened below with non-blocking open so a FIFO
+  or special file cannot block even under a concurrent path swap on the
+  platforms listed below). In `0.5.0`, lengths were bounded only against the
+  file's reported length, so a sparse file could still force GiB-sized
+  allocations before failing.
+* Open TZif (`TZ`) and Android/OpenHarmony `tzdata` files non-blocking
+  (`O_NONBLOCK`) on Unix and verify `is_file()` on the opened `File` handle
+  (keeping the pre-open `is_file()` check as a fast path). This closes a race
+  in which a FIFO swapped in after the `0.4.46` / `0.4.47` `is_file()`
+  pre-check could hang `Local::now()` or the `tzdata` loader indefinitely.
+  `O_NONBLOCK` is enabled on Linux and Android (including OpenHarmony) on
+  `x86`, `x86_64`, `arm`, `aarch64`, `riscv32`, `riscv64`, `s390x`, `powerpc`,
+  `powerpc64`, and `loongarch64`; Apple platforms, FreeBSD, DragonFly, NetBSD,
+  and OpenBSD; and Solaris and illumos. Other Unix targets keep the
+  check-then-open behavior. Not in `0.4.47`.
+* Enforce `[TimeDelta::MIN, TimeDelta::MAX]` bounds in `TimeDelta::checked_mul`
+  via `TimeDelta::new`, returning `None` instead of an out-of-range `TimeDelta`
+  (where `num_milliseconds()` subsequently panicked in debug builds or wrapped
+  in release builds). `TimeDelta * i32` now panics with its overflow message
+  instead of returning an out-of-range value. Document `# Panics` on
+  `TimeDelta` arithmetic operators (`Add`, `Sub`, `AddAssign`, `SubAssign`,
+  `Mul<i32>`, `Div<i32>`, and `Sum`). Not in `0.4.47`.
+
+### Fixes
+
+* Android and OpenHarmony `tzdata`: fix on-device test `for_zone` argument
+  types so the on-device `tzdata` tests compile (ported from `0.4.47`).
+
+### CI
+
+* Pin `wasm-pack` to `v0.15.1` in `test_wasm` (`0.5.0` intended all CI tools to
+  be version-pinned, but missed `wasm-pack-action` floating to `latest`), and
+  update `taiki-e/install-action` SHA comments from `# v2` to `# v2.90.5`.
+* Add `aarch64-unknown-linux-ohos` to `alternative_targets` and compile `--lib
+  --tests` on both `aarch64-linux-android` and `aarch64-unknown-linux-ohos` so
+  the on-device `tzdata` tests are checked in CI.
+* Add a `0.4.x` `github-actions` entry to `.github/dependabot.yml` so
+  Dependabot updates action SHA pins on the `0.4.x` maintenance branch as well.
+
+## sad-chrono 0.4.47
+
+Released from the `0.4.x` maintenance branch.
+
+Security release on the 0.4 maintenance line. It is API-compatible with
+0.4.46, and the MSRV (1.62.0) and rkyv 0.7 are unchanged.
+[`sad-chrono 0.5.0`](https://github.com/sadco-io/sad-chrono/blob/main/CHANGELOG.md#sad-chrono-050)
+(MSRV 1.85, rkyv 0.8) is the recommended line; `0.4.x` receives security
+fixes only.
+
+### Security and robustness
+
+* Android and OpenHarmony `tzdata`: header index-region and per-entry lengths
+  are checked against the file length (`SeekFrom::End(0)`) and capped at 1 MiB
+  before allocating, the reader seeks to `index_offset` before reading the
+  index, and the `tzdata` path must be a regular file (`is_file()` checked
+  before opening and again on the opened `File`, preventing hangs on FIFOs or
+  special files). Previously a malformed bundle could make the reader allocate
+  up to 4 GiB before failing on 64-bit targets, and panic (`capacity overflow`)
+  or abort on 32-bit. Malformed bundles are now rejected with `UnexpectedEof`
+  or `InvalidData`, and non-regular paths with `InvalidInput` (file-length
+  bounds backported from `0.5.0`; 1 MiB caps and regular-file guard new in
+  `0.4.47`).
+* With `rkyv-validation`, `CheckBytes` validation now enforces value
+  invariants (not just structural layout) for `NaiveDate`, `NaiveTime`,
+  `TimeDelta`, `FixedOffset`, and `IsoWeek`, so untrusted archives containing
+  out-of-range or inconsistent values are rejected during validation instead
+  of panicking or returning wrong values on subsequent use.
+* `From<DateTime<Tz>> for SystemTime` now saturates to the platform's nearest
+  representable `SystemTime` using `checked_add` / `checked_sub` and binary
+  search, and normalizes leap seconds before inverting pre-epoch offsets.
+  Previously the conversion panicked on Windows below 1601 or above 30828,
+  and before 1970 on `wasm32-unknown-unknown` (backported from `0.5.0`).
+* Document `# Panics` sections on `DateTime::format`, `NaiveDateTime::format`,
+  `NaiveDate::format`, and `NaiveTime::format` covering all failure classes
+  (invalid specifiers, parse-only specifiers such as `%#z`, and specifiers for
+  fields the type lacks), and recommend `write!` / `core::fmt::Write` with
+  error handling for untrusted format strings (backported from `0.5.0`).
+
+### Fixes
+
+* Android and OpenHarmony `tzdata`: restore compilation on Rust 1.62–1.79
+  (import `std::mem::size_of` and use named generic parameters on
+  `find_tz_data` / `TzDataIndexes::new`) and fix on-device test argument types,
+  so the documented 1.62.0 MSRV holds for those targets and the on-device tests
+  compile. On Rust older than 1.63, Android builds also need `cargo update -p
+  libc --precise 0.2.163`, because Cargo before 1.84 doesn't select
+  MSRV-compatible dependency versions.
+
+### Known issues (0.4.x line)
+
+* The `rkyv*` features still use rkyv 0.7 and are affected by
+  [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235), which
+  is unchanged from 0.4.46. Fixed in 0.5.0 by rkyv 0.8.18.
+* With `rkyv-validation`, the archived `DateTime<Tz>` local-time range is not
+  validated (enforcing it generically would require extra `Tz::Offset` bounds
+  that change the `0.4` API). A validated archive can hold a UTC date-time
+  plus offset whose local time is out of range, so methods such as
+  `naive_local()` can panic. Mitigation: check
+  `dt.naive_utc().checked_add_offset(dt.offset().fix()).is_some()` (with
+  `Offset` in scope) before use. `0.5.x` validates this.
+
+### CI
+
+* Workflows now run on pushes to `0.4.x`. All actions are pinned to commit
+  SHAs, tool versions (including `wasm-pack`) are pinned, checkouts set
+  `persist-credentials: false`, baselines are fetched by commit, `rust_msrv`
+  adds an Android MSRV check, `alternative_targets` adds OpenHarmony and
+  checks Android tests, `semver` adds a frozen-API reverse check against
+  `0.4.46` and a `Cargo.toml` MSRV guard, and the stale `RUSTSEC-2026-0173`
+  ignore is removed from `deny.toml`.
+
 ## sad-chrono 0.5.0
 
 `sad-chrono 0.5.0` preserves chrono 0.4's public API, feature names, and serde

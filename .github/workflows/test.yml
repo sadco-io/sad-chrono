@@ -83,7 +83,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: cargo-hack@0.6.46
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -133,6 +133,9 @@ jobs:
             wasm32-unknown-emscripten,
             aarch64-apple-ios,
             aarch64-linux-android,
+            aarch64-unknown-linux-ohos,
+            x86_64-unknown-illumos,
+            x86_64-unknown-freebsd,
           ]
     runs-on: ${{ matrix.os }}
     steps:
@@ -145,6 +148,10 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --target ${{ matrix.target }}  --color=always
+      - if: matrix.target == 'aarch64-linux-android' || matrix.target == 'aarch64-unknown-linux-ohos' || matrix.target == 'x86_64-unknown-illumos' || matrix.target == 'x86_64-unknown-freebsd'
+        run: cargo check --lib --tests --target ${{ matrix.target }}
+        env:
+          RUSTFLAGS: "-D warnings"
 
   test_wasm:
     strategy:
@@ -163,6 +170,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       - uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # v0.4.0
+        with:
+          version: v0.15.1
       # The `TZ` and `NOW` variables are used to compare the results inside the WASM environment
       # with the host system.
       - run: TZ="$(date +%z)" NOW="$(date +%s)" wasm-pack test --node -- --features wasmbind

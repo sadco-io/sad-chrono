@@ -6,20 +6,30 @@ use std::{
     fmt::Debug,
     fs::File,
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
+    mem::size_of,
 };
+
+/// Open a `tzdata` path only if it is a regular file.
+#[cfg(any(test, target_os = "android", target_env = "ohos"))]
+fn open_regular_file(path: &str) -> Result<File> {
+    match super::open_regular::open_regular_nonblocking(std::path::Path::new(path))? {
+        Some(file) => Ok(file),
+        None => Err(Error::new(ErrorKind::InvalidInput, "tzdata path is not a regular file")),
+    }
+}
 
 /// Get timezone data from the `tzdata` file of HarmonyOS NEXT.
 #[cfg(target_env = "ohos")]
 pub(crate) fn for_zone(tz_string: &str) -> Result<Option<Vec<u8>>> {
-    let mut file = File::open("/system/etc/zoneinfo/tzdata")?;
-    find_tz_data::<OHOS_ENTRY_LEN>(&mut file, tz_string.as_bytes())
+    let mut file = open_regular_file("/system/etc/zoneinfo/tzdata")?;
+    find_tz_data::<OHOS_ENTRY_LEN, _>(&mut file, tz_string.as_bytes())
 }
 
 /// Get timezone data from the `tzdata` file of Android.
 #[cfg(target_os = "android")]
 pub(crate) fn for_zone(tz_string: &str) -> Result<Option<Vec<u8>>> {
     let mut file = open_android_tz_data_file()?;
-    find_tz_data::<ANDROID_ENTRY_LEN>(&mut file, tz_string.as_bytes())
+    find_tz_data::<ANDROID_ENTRY_LEN, _>(&mut file, tz_string.as_bytes())
 }
 
 /// Open the `tzdata` file of Android from the environment variables.
@@ -34,7 +44,7 @@ fn open_android_tz_data_file() -> Result<File> {
         ("ANDROID_ROOT", "/usr/share/zoneinfo"),
     ] {
         if let Ok(env_value) = std::env::var(env_var) {
-            if let Ok(file) = File::open(format!("{}{}/tzdata", env_value, path)) {
+            if let Ok(file) = open_regular_file(&format!("{}{}/tzdata", env_value, path)) {
                 return Ok(file);
             }
         }
@@ -44,12 +54,12 @@ fn open_android_tz_data_file() -> Result<File> {
 
 /// Get timezone data from the `tzdata` file reader
 #[cfg(any(test, target_env = "ohos", target_os = "android"))]
-fn find_tz_data<const ENTRY_LEN: usize>(
-    mut reader: impl Read + Seek,
+fn find_tz_data<const ENTRY_LEN: usize, R: Read + Seek>(
+    mut reader: R,
     tz_name: &[u8],
 ) -> Result<Option<Vec<u8>>> {
     let header = TzDataHeader::new(&mut reader)?;
-    let index = TzDataIndexes::new::<ENTRY_LEN>(&mut reader, &header)?;
+    let index = TzDataIndexes::new::<ENTRY_LEN, _>(&mut reader, &header)?;
     Ok(if let Some(entry) = index.find_timezone(tz_name) {
         Some(index.find_tzdata(reader, &header, entry)?)
     } else {
@@ -99,8 +109,8 @@ struct TzDataIndexes {
 
 impl TzDataIndexes {
     /// Create a new `TzDataIndexes` from the `tzdata` file reader.
-    fn new<const ENTRY_LEN: usize>(
-        mut reader: impl Read + Seek,
+    fn new<const ENTRY_LEN: usize, R: Read + Seek>(
+        mut reader: R,
         header: &TzDataHeader,
     ) -> Result<Self> {
         let index_len = header.data_offset.checked_sub(header.index_offset).ok_or_else(|| {
@@ -112,6 +122,9 @@ impl TzDataIndexes {
                 ErrorKind::UnexpectedEof,
                 "tzdata index region exceeds file length",
             ));
+        }
+        if index_len > MAX_TZDATA_INDEX_LEN {
+            return Err(Error::new(ErrorKind::InvalidData, "tzdata index region exceeds 1 MiB"));
         }
         reader.seek(SeekFrom::Start(u64::from(header.index_offset)))?;
         let mut buf = vec![0; index_len as usize];
@@ -157,6 +170,9 @@ impl TzDataIndexes {
         if end > file_len {
             return Err(Error::new(ErrorKind::UnexpectedEof, "tzdata entry exceeds file length"));
         }
+        if index.length > MAX_TZDATA_ENTRY_LEN {
+            return Err(Error::new(ErrorKind::InvalidData, "tzdata entry exceeds 1 MiB"));
+        }
         reader.seek(SeekFrom::Start(start))?;
         let mut buffer = vec![0; index.length as usize];
         reader.read_exact(&mut buffer)?;
@@ -192,6 +208,11 @@ const TZ_NAME_LEN: usize = 40;
 /// Size of the version string in the header of `tzdata` file.
 /// e.g. `tzdata2024b\0`
 const TZDATA_VERSION_LEN: usize = 12;
+/// Maximum size of the `tzdata` index region (1 MiB); real bundles have indexes of about 30 KB.
+const MAX_TZDATA_INDEX_LEN: u32 = 1 << 20;
+/// Maximum size of a single `tzdata` entry (1 MiB), matching the TZif read cap (`MAX_TZIF_LEN`,
+/// 1 MiB) in `tz_info/timezone.rs`; real bundles are about 0.5 MB total.
+const MAX_TZDATA_ENTRY_LEN: u32 = 1 << 20;
 
 #[cfg(test)]
 mod tests {
@@ -210,7 +231,7 @@ mod tests {
         data.extend_from_slice(&[0u8; 20]);
         let mut cursor = Cursor::new(&data[..]);
         let header = TzDataHeader::new(&mut cursor).unwrap();
-        let indexes = TzDataIndexes::new::<OHOS_ENTRY_LEN>(&mut cursor, &header).unwrap();
+        let indexes = TzDataIndexes::new::<OHOS_ENTRY_LEN, _>(&mut cursor, &header).unwrap();
         assert!(indexes.indexes.is_empty());
     }
 
@@ -224,8 +245,8 @@ mod tests {
         data.extend_from_slice(&[0u8; 16]);
 
         for err in [
-            find_tz_data::<OHOS_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err(),
-            find_tz_data::<ANDROID_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err(),
+            find_tz_data::<OHOS_ENTRY_LEN, _>(Cursor::new(&data), b"UTC").unwrap_err(),
+            find_tz_data::<ANDROID_ENTRY_LEN, _>(Cursor::new(&data), b"UTC").unwrap_err(),
         ] {
             assert_eq!(err.kind(), ErrorKind::InvalidData);
             assert_eq!(err.to_string(), "tzdata data_offset precedes index_offset");
@@ -242,8 +263,8 @@ mod tests {
         assert_eq!(data.len(), 24);
 
         for err in [
-            find_tz_data::<OHOS_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err(),
-            find_tz_data::<ANDROID_ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err(),
+            find_tz_data::<OHOS_ENTRY_LEN, _>(Cursor::new(&data), b"UTC").unwrap_err(),
+            find_tz_data::<ANDROID_ENTRY_LEN, _>(Cursor::new(&data), b"UTC").unwrap_err(),
         ] {
             assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
             assert_eq!(err.to_string(), "tzdata index region exceeds file length");
@@ -267,13 +288,165 @@ mod tests {
             data.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes()); // length
             data.extend_from_slice(trailing);
 
-            let err = find_tz_data::<ENTRY_LEN>(Cursor::new(&data), b"UTC").unwrap_err();
+            let err = find_tz_data::<ENTRY_LEN, _>(Cursor::new(&data), b"UTC").unwrap_err();
             assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
             assert_eq!(err.to_string(), "tzdata entry exceeds file length");
         }
 
         check_entry_oob::<OHOS_ENTRY_LEN>(&[]);
         check_entry_oob::<ANDROID_ENTRY_LEN>(&0u32.to_be_bytes());
+    }
+
+    #[test]
+    fn test_tzdata_index_region_cap() {
+        fn build(index_len: u32) -> Vec<u8> {
+            let index_offset = 24u32;
+            let data_offset = index_offset + index_len;
+            let mut data = Vec::with_capacity(data_offset as usize);
+            data.extend_from_slice(b"tzdata2024a\0");
+            data.extend_from_slice(&index_offset.to_be_bytes());
+            data.extend_from_slice(&data_offset.to_be_bytes());
+            data.extend_from_slice(&data_offset.to_be_bytes()); // zonetab_offset
+            data.resize(data_offset as usize, 0);
+            data
+        }
+
+        let over = build(MAX_TZDATA_INDEX_LEN + 1);
+        for err in [
+            find_tz_data::<OHOS_ENTRY_LEN, _>(Cursor::new(&over), b"UTC").unwrap_err(),
+            find_tz_data::<ANDROID_ENTRY_LEN, _>(Cursor::new(&over), b"UTC").unwrap_err(),
+        ] {
+            assert_eq!(err.kind(), ErrorKind::InvalidData);
+            assert_eq!(err.to_string(), "tzdata index region exceeds 1 MiB");
+        }
+
+        let exact = build(MAX_TZDATA_INDEX_LEN);
+        assert!(find_tz_data::<OHOS_ENTRY_LEN, _>(Cursor::new(&exact), b"UTC").unwrap().is_none());
+        assert!(
+            find_tz_data::<ANDROID_ENTRY_LEN, _>(Cursor::new(&exact), b"UTC").unwrap().is_none()
+        );
+    }
+
+    #[test]
+    fn test_tzdata_entry_cap() {
+        fn build<const ENTRY_LEN: usize>(length: u32) -> Vec<u8> {
+            let index_offset = 24u32;
+            let data_offset = index_offset + ENTRY_LEN as u32;
+            let total_len = data_offset as usize + length as usize;
+            let mut data = Vec::with_capacity(total_len);
+            data.extend_from_slice(b"tzdata2024a\0");
+            data.extend_from_slice(&index_offset.to_be_bytes());
+            data.extend_from_slice(&data_offset.to_be_bytes());
+            data.extend_from_slice(&(total_len as u32).to_be_bytes()); // zonetab_offset
+
+            let mut entry = vec![0u8; ENTRY_LEN];
+            entry[..3].copy_from_slice(b"UTC");
+            entry[TZ_NAME_LEN..TZ_NAME_LEN + 4].copy_from_slice(&0u32.to_be_bytes());
+            entry[TZ_NAME_LEN + 4..TZ_NAME_LEN + 8].copy_from_slice(&length.to_be_bytes());
+            data.extend_from_slice(&entry);
+            data.resize(total_len, 0xAB);
+            data
+        }
+
+        fn check<const ENTRY_LEN: usize>() {
+            let over = build::<ENTRY_LEN>(MAX_TZDATA_ENTRY_LEN + 1);
+            let err = find_tz_data::<ENTRY_LEN, _>(Cursor::new(&over), b"UTC").unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidData);
+            assert_eq!(err.to_string(), "tzdata entry exceeds 1 MiB");
+
+            let exact = build::<ENTRY_LEN>(MAX_TZDATA_ENTRY_LEN);
+            let loaded =
+                find_tz_data::<ENTRY_LEN, _>(Cursor::new(&exact), b"UTC").unwrap().unwrap();
+            assert_eq!(loaded.len(), MAX_TZDATA_ENTRY_LEN as usize);
+        }
+
+        check::<OHOS_ENTRY_LEN>();
+        check::<ANDROID_ENTRY_LEN>();
+    }
+
+    #[test]
+    fn test_open_regular_file() {
+        let dir = std::env::temp_dir();
+        let err = open_regular_file(dir.to_str().unwrap()).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.to_string(), "tzdata path is not a regular file");
+
+        let missing = dir.join(format!("sad-chrono-missing-tzdata-{}", std::process::id()));
+        let _ = std::fs::remove_file(&missing);
+        assert_eq!(
+            open_regular_file(missing.to_str().unwrap()).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+
+        assert!(open_regular_file("./tests/android/tzdata").is_ok());
+    }
+
+    #[test]
+    fn test_tzdata_entry_last_ends_at_eof() {
+        // WET is the last entry in both fixtures and ends exactly at EOF.
+        let file = File::open("./tests/ohos/tzdata").unwrap();
+        let tzdata = find_tz_data::<OHOS_ENTRY_LEN, _>(file, b"WET").unwrap().unwrap();
+        assert!(tzdata.starts_with(b"TZif"));
+        let file = File::open("./tests/android/tzdata").unwrap();
+        let tzdata = find_tz_data::<ANDROID_ENTRY_LEN, _>(file, b"WET").unwrap().unwrap();
+        assert!(tzdata.starts_with(b"TZif"));
+    }
+
+    #[test]
+    fn test_tzdata_fixture_content() {
+        for tzdata in [
+            find_tz_data::<OHOS_ENTRY_LEN, _>(
+                File::open("./tests/ohos/tzdata").unwrap(),
+                b"Asia/Shanghai",
+            )
+            .unwrap()
+            .unwrap(),
+            find_tz_data::<ANDROID_ENTRY_LEN, _>(
+                File::open("./tests/android/tzdata").unwrap(),
+                b"Asia/Shanghai",
+            )
+            .unwrap()
+            .unwrap(),
+        ] {
+            assert!(tzdata.starts_with(b"TZif"));
+            assert!(tzdata.ends_with(b"\nCST-8\n"));
+        }
+    }
+
+    #[test]
+    fn test_tzdata_entry_nonzero_offset_bounds() {
+        fn build<const ENTRY_LEN: usize>(length: u32) -> Vec<u8> {
+            let index_offset = 28u32; // 4 bytes of padding after the 24-byte header
+            let data_offset = index_offset + ENTRY_LEN as u32;
+            let mut data = Vec::new();
+            data.extend_from_slice(b"tzdata2024a\0");
+            data.extend_from_slice(&index_offset.to_be_bytes());
+            data.extend_from_slice(&data_offset.to_be_bytes());
+            data.extend_from_slice(&(data_offset + 5).to_be_bytes()); // zonetab_offset
+            data.extend_from_slice(&[0xFF; 4]); // padding the index must skip
+            let mut entry = vec![0u8; ENTRY_LEN];
+            entry[..3].copy_from_slice(b"UTC");
+            entry[TZ_NAME_LEN..TZ_NAME_LEN + 4].copy_from_slice(&2u32.to_be_bytes()); // offset
+            entry[TZ_NAME_LEN + 4..TZ_NAME_LEN + 8].copy_from_slice(&length.to_be_bytes());
+            data.extend_from_slice(&entry);
+            data.extend_from_slice(b"xxABC"); // data region
+            data
+        }
+        fn check<const ENTRY_LEN: usize>() {
+            // offset 2 + length 3 ends exactly at EOF: accepted, exact bytes.
+            let data = build::<ENTRY_LEN>(3);
+            assert_eq!(
+                find_tz_data::<ENTRY_LEN, _>(Cursor::new(&data), b"UTC").unwrap().unwrap(),
+                b"ABC"
+            );
+            // offset 2 + length 4 ends one byte past EOF, although length alone fits.
+            let data = build::<ENTRY_LEN>(4);
+            let err = find_tz_data::<ENTRY_LEN, _>(Cursor::new(&data), b"UTC").unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
+            assert_eq!(err.to_string(), "tzdata entry exceeds file length");
+        }
+        check::<OHOS_ENTRY_LEN>();
+        check::<ANDROID_ENTRY_LEN>();
     }
 
     #[test]
@@ -285,7 +458,7 @@ mod tests {
         assert_eq!(header.data_offset, 21240);
         assert_eq!(header.zonetab_offset, 272428);
 
-        let iter = TzDataIndexes::new::<OHOS_ENTRY_LEN>(&file, &header).unwrap();
+        let iter = TzDataIndexes::new::<OHOS_ENTRY_LEN, _>(&file, &header).unwrap();
         assert_eq!(iter.indexes.len(), 442);
         assert!(iter.find_timezone(b"Asia/Shanghai").is_some());
         assert!(iter.find_timezone(b"Pacific/Noumea").is_some());
@@ -295,7 +468,7 @@ mod tests {
     fn test_ohos_tzdata_loading() {
         let file = File::open("./tests/ohos/tzdata").unwrap();
         let header = TzDataHeader::new(&file).unwrap();
-        let iter = TzDataIndexes::new::<OHOS_ENTRY_LEN>(&file, &header).unwrap();
+        let iter = TzDataIndexes::new::<OHOS_ENTRY_LEN, _>(&file, &header).unwrap();
         let timezone = iter.find_timezone(b"Asia/Shanghai").unwrap();
         let tzdata = iter.find_tzdata(&file, &header, timezone).unwrap();
         assert_eq!(tzdata.len(), 393);
@@ -315,7 +488,7 @@ mod tests {
         assert_eq!(header.data_offset, 30860);
         assert_eq!(header.zonetab_offset, 491837);
 
-        let iter = TzDataIndexes::new::<ANDROID_ENTRY_LEN>(&file, &header).unwrap();
+        let iter = TzDataIndexes::new::<ANDROID_ENTRY_LEN, _>(&file, &header).unwrap();
         assert_eq!(iter.indexes.len(), 593);
         assert!(iter.find_timezone(b"Asia/Shanghai").is_some());
         assert!(iter.find_timezone(b"Pacific/Noumea").is_some());
@@ -325,7 +498,7 @@ mod tests {
     fn test_android_tzdata_loading() {
         let file = File::open("./tests/android/tzdata").unwrap();
         let header = TzDataHeader::new(&file).unwrap();
-        let iter = TzDataIndexes::new::<ANDROID_ENTRY_LEN>(&file, &header).unwrap();
+        let iter = TzDataIndexes::new::<ANDROID_ENTRY_LEN, _>(&file, &header).unwrap();
         let timezone = iter.find_timezone(b"Asia/Shanghai").unwrap();
         let tzdata = iter.find_tzdata(&file, &header, timezone).unwrap();
         assert_eq!(tzdata.len(), 573);
@@ -334,40 +507,187 @@ mod tests {
     #[test]
     fn test_ohos_tzdata_find() {
         let file = File::open("./tests/ohos/tzdata").unwrap();
-        let tzdata = find_tz_data::<OHOS_ENTRY_LEN>(file, b"Asia/Shanghai").unwrap().unwrap();
+        let tzdata = find_tz_data::<OHOS_ENTRY_LEN, _>(file, b"Asia/Shanghai").unwrap().unwrap();
         assert_eq!(tzdata.len(), 393);
     }
 
     #[test]
     fn test_ohos_tzdata_find_missing() {
         let file = File::open("./tests/ohos/tzdata").unwrap();
-        assert!(find_tz_data::<OHOS_ENTRY_LEN>(file, b"Asia/Sjasdfai").unwrap().is_none());
+        assert!(find_tz_data::<OHOS_ENTRY_LEN, _>(file, b"Asia/Sjasdfai").unwrap().is_none());
     }
 
     #[test]
     fn test_android_tzdata_find() {
         let file = File::open("./tests/android/tzdata").unwrap();
-        let tzdata = find_tz_data::<ANDROID_ENTRY_LEN>(file, b"Asia/Shanghai").unwrap().unwrap();
+        let tzdata = find_tz_data::<ANDROID_ENTRY_LEN, _>(file, b"Asia/Shanghai").unwrap().unwrap();
         assert_eq!(tzdata.len(), 573);
     }
 
     #[test]
     fn test_android_tzdata_find_missing() {
         let file = File::open("./tests/android/tzdata").unwrap();
-        assert!(find_tz_data::<ANDROID_ENTRY_LEN>(file, b"Asia/S000000i").unwrap().is_none());
+        assert!(find_tz_data::<ANDROID_ENTRY_LEN, _>(file, b"Asia/S000000i").unwrap().is_none());
     }
 
     #[cfg(target_env = "ohos")]
     #[test]
     fn test_ohos_machine_tz_data_loading() {
-        let tzdata = for_zone(b"Asia/Shanghai").unwrap().unwrap();
+        let tzdata = for_zone("Asia/Shanghai").unwrap().unwrap();
         assert!(!tzdata.is_empty());
     }
 
     #[cfg(target_os = "android")]
     #[test]
     fn test_android_machine_tz_data_loading() {
-        let tzdata = for_zone(b"Asia/Shanghai").unwrap().unwrap();
+        let tzdata = for_zone("Asia/Shanghai").unwrap().unwrap();
         assert!(!tzdata.is_empty());
+    }
+
+    /// Reader that reports a huge (sparse) length but holds only the header/index bytes.
+    struct SparseReader {
+        inner: Cursor<Vec<u8>>,
+        fake_len: u64,
+    }
+    impl Read for SparseReader {
+        fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+            self.inner.read(buf)
+        }
+    }
+    impl Seek for SparseReader {
+        fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+            match pos {
+                SeekFrom::End(off) => Ok((self.fake_len as i64 + off) as u64),
+                other => self.inner.seek(other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_tzdata_caps_checked_before_allocating_sparse() {
+        // Index region: ~4 GiB claimed, file "length" ~8 GiB, only the header is backed.
+        let mut data = Vec::new();
+        data.extend_from_slice(b"tzdata2024a\0");
+        data.extend_from_slice(&24u32.to_be_bytes());
+        data.extend_from_slice(&u32::MAX.to_be_bytes());
+        data.extend_from_slice(&0u32.to_be_bytes());
+        let r = SparseReader { inner: Cursor::new(data), fake_len: 2 * u64::from(u32::MAX) };
+        let err = find_tz_data::<OHOS_ENTRY_LEN, _>(r, b"UTC").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert_eq!(err.to_string(), "tzdata index region exceeds 1 MiB");
+
+        // Entry: ~4 GiB claimed, file "length" ~8 GiB, only header + index are backed.
+        fn entry<const ENTRY_LEN: usize>() {
+            let mut data = Vec::new();
+            data.extend_from_slice(b"tzdata2024a\0");
+            data.extend_from_slice(&24u32.to_be_bytes());
+            data.extend_from_slice(&(24 + ENTRY_LEN as u32).to_be_bytes());
+            data.extend_from_slice(&0u32.to_be_bytes());
+            let mut e = vec![0u8; ENTRY_LEN];
+            e[..3].copy_from_slice(b"UTC");
+            e[TZ_NAME_LEN + 4..TZ_NAME_LEN + 8].copy_from_slice(&u32::MAX.to_be_bytes());
+            data.extend_from_slice(&e);
+            let r = SparseReader { inner: Cursor::new(data), fake_len: 2 * u64::from(u32::MAX) };
+            let err = find_tz_data::<ENTRY_LEN, _>(r, b"UTC").unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidData);
+            assert_eq!(err.to_string(), "tzdata entry exceeds 1 MiB");
+        }
+        entry::<OHOS_ENTRY_LEN>();
+        entry::<ANDROID_ENTRY_LEN>();
+    }
+
+    #[test]
+    fn test_tzdata_caps_are_1_mib() {
+        assert_eq!(MAX_TZDATA_INDEX_LEN, 1 << 20);
+        assert_eq!(MAX_TZDATA_ENTRY_LEN, 1 << 20);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_file_fifo_and_symlink() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        struct RemoveDirOnDrop(std::path::PathBuf);
+        impl Drop for RemoveDirOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!("sad-chrono-tzdata-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let _guard = RemoveDirOnDrop(dir.clone());
+
+        // A symlink to a regular file is accepted (metadata follows links).
+        let link = dir.join("link");
+        let target = std::env::current_dir().unwrap().join("tests/android/tzdata");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(open_regular_file(link.to_str().unwrap()).is_ok());
+
+        // A FIFO with no writer is rejected without blocking in `open`.
+        let fifo = dir.join("tzdata");
+        let c_fifo = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(c_fifo.as_ptr(), 0o644) },
+            0,
+            "mkfifo failed: {}",
+            Error::last_os_error()
+        );
+        let path = fifo.to_str().unwrap().to_owned();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(open_regular_file(&path).map(drop));
+        });
+        let res = rx.recv_timeout(std::time::Duration::from_secs(5));
+        if res.is_err() {
+            // Unblock the reader so the thread can finish.
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true);
+            if let Some(nb) = super::super::open_regular::O_NONBLOCK {
+                opts.custom_flags(nb);
+            }
+            let _ = opts.open(&fifo);
+        }
+        let err = res.expect("open_regular_file blocked on a FIFO").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.to_string(), "tzdata path is not a regular file");
+
+        // Bypass the pre-open metadata check to pin the TOCTOU race fix.
+        if super::super::open_regular::O_NONBLOCK.is_some() {
+            let fifo_path = fifo.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(
+                    super::super::open_regular::open_nonblocking_checked(&fifo_path)
+                        .map(|opt| opt.map(drop)),
+                );
+            });
+            let res = rx.recv_timeout(std::time::Duration::from_secs(5));
+            if res.is_err() {
+                let mut opts = std::fs::OpenOptions::new();
+                opts.write(true);
+                if let Some(nb) = super::super::open_regular::O_NONBLOCK {
+                    opts.custom_flags(nb);
+                }
+                let _ = opts.open(&fifo);
+            }
+            assert!(res.expect("open_nonblocking_checked blocked on a FIFO").unwrap().is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_file_sets_o_nonblock() {
+        use std::os::unix::io::AsRawFd;
+
+        if let Some(nb) = super::super::open_regular::O_NONBLOCK {
+            let file = open_regular_file("./tests/android/tzdata").unwrap();
+            // SAFETY: `file` owns an open file descriptor and `F_GETFL` takes no extra arguments.
+            let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+            assert_ne!(flags, -1, "fcntl(F_GETFL) failed: {}", Error::last_os_error());
+            assert_ne!(flags & nb, 0);
+        }
     }
 }

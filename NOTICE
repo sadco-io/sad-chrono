@@ -40,9 +40,19 @@ In `sad-chrono` 0.5.0, the following additional modifications were made:
 - Updated `windows-link` to 0.100 (with regenerated Windows bindings) and
   `defmt` to 1.2, and raised the MSRV to Rust 1.85.0
 - Security and robustness fixes by the Sadco Security Team: semantic
-  invariant validation under `rkyv-validation`, file-length allocation
-  bounds for Android/OpenHarmony `tzdata`, and saturating
-  `From<DateTime<Tz>> for SystemTime` conversion
+  invariant validation whenever any `rkyv*` feature is enabled,
+  file-length allocation bounds for Android/OpenHarmony `tzdata`, and
+  saturating `From<DateTime<Tz>> for SystemTime` conversion
+
+In `sad-chrono` 0.5.1, the following additional modifications were made:
+
+- Security and robustness fixes by the Sadco Security Team: 1 MiB index
+  and entry allocation caps and regular-file guard (`is_file()`) for
+  Android/OpenHarmony `tzdata` (ported from `0.4.47`), non-blocking
+  (`O_NONBLOCK`) open with post-open `is_file()` verification for TZif
+  (`TZ`) and `tzdata` files on supported Unix targets, and
+  `[TimeDelta::MIN, TimeDelta::MAX]` range enforcement in
+  `TimeDelta::checked_mul`
 
 The upstream fixes listed above were written by their upstream authors;
 see CHANGELOG.md for attribution of each change. The packaging changes
