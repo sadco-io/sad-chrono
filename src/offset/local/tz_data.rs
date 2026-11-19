@@ -699,7 +699,17 @@ mod tests {
         let _guard = RemoveDirOnDrop(dir.clone());
 
         let sock = dir.join("s");
-        let _listener = UnixListener::bind(&sock).unwrap();
+        // `cross` i686 containers return ENOSYS for socket syscalls.
+        let _listener = match UnixListener::bind(&sock) {
+            Ok(listener) => listener,
+            Err(err)
+                if matches!(err.kind(), ErrorKind::Unsupported | ErrorKind::PermissionDenied) =>
+            {
+                eprintln!("skipping socket test: UnixListener::bind failed: {err}");
+                return;
+            }
+            Err(err) => panic!("UnixListener::bind({}) failed: {err}", sock.display()),
+        };
 
         // `open(2)` on a Unix domain socket fails (ENXIO on Linux, EOPNOTSUPP on macOS), so
         // `ErrorKind::InvalidInput` proves the `is_file()` pre-check ran before opening.

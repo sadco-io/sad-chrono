@@ -1244,7 +1244,20 @@ mod tests {
         // Keep path short so `sun_path` stays within macOS's 104-byte limit.
         let (dir, _guard) = create_temp_dir("sc-tz");
         let sock = dir.join("s");
-        let _listener = UnixListener::bind(&sock).unwrap();
+        // `cross` i686 containers return ENOSYS for socket syscalls.
+        let _listener = match UnixListener::bind(&sock) {
+            Ok(listener) => listener,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::Unsupported | std::io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                eprintln!("skipping socket test: UnixListener::bind failed: {err}");
+                return;
+            }
+            Err(err) => panic!("UnixListener::bind({}) failed: {err}", sock.display()),
+        };
 
         // `open(2)` on a Unix domain socket fails (ENXIO on Linux, EOPNOTSUPP on macOS), so
         // `InvalidTzFile("TZif path is not a regular file")` proves the `is_file()` pre-check ran.
