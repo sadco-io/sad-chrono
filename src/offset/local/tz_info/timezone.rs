@@ -1,6 +1,6 @@
 //! Types related to a time zone.
 
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::{cmp::Ordering, fmt, str};
@@ -635,12 +635,10 @@ impl LocalTimeType {
 }
 
 fn open_regular_tz_file(path: impl AsRef<Path>) -> Result<File, Error> {
-    let path = path.as_ref();
-    // Check metadata before opening so a FIFO does not block in `File::open`.
-    if !fs::metadata(path)?.is_file() {
-        return Err(Error::InvalidTzFile("TZif path is not a regular file"));
+    match crate::offset::local::open_regular::open_regular_nonblocking(path.as_ref())? {
+        Some(file) => Ok(file),
+        None => Err(Error::InvalidTzFile("TZif path is not a regular file")),
     }
-    Ok(File::open(path)?)
 }
 
 /// Open the TZif file corresponding to a TZ string
@@ -1139,46 +1137,147 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn test_fifo_tz_file() {
-        use std::sync::mpsc;
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    struct RemoveDirOnDrop(std::path::PathBuf);
 
-        struct RemoveOnDrop(std::path::PathBuf);
-        impl Drop for RemoveOnDrop {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
+    #[cfg(unix)]
+    impl Drop for RemoveDirOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[cfg(unix)]
+    fn create_temp_dir(prefix: &str) -> (std::path::PathBuf, RemoveDirOnDrop) {
+        use std::time::{SystemTime, UNIX_EPOCH};
 
         let unique =
             SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        let path =
-            std::env::temp_dir().join(format!("sad_chrono_fifo_{}_{}", std::process::id(), unique));
-        let _ = std::fs::remove_file(&path);
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}-{unique:x}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let guard = RemoveDirOnDrop(dir.clone());
+        (dir, guard)
+    }
 
-        match std::process::Command::new("mkfifo").arg(&path).status() {
-            Ok(status) if status.success() => {}
-            _ => return,
-        }
-        let _guard = RemoveOnDrop(path.clone());
+    #[cfg(unix)]
+    #[test]
+    fn test_fifo_tz_file() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
 
-        let path_str = match path.to_str() {
-            Some(s) => s,
-            None => return,
+        let (dir, _guard) = create_temp_dir("sad_chrono_fifo");
+
+        // Symlink to a regular file is accepted.
+        let link = dir.join("tz-link");
+        let target = std::env::current_dir().unwrap().join("tests/android/tzdata");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(super::open_regular_tz_file(&link).is_ok());
+
+        // Directory is rejected as non-regular, and missing path returns NotFound.
+        assert!(matches!(
+            super::open_regular_tz_file(&dir),
+            Err(Error::InvalidTzFile("TZif path is not a regular file"))
+        ));
+        let missing = dir.join("missing");
+        assert!(matches!(
+            super::open_regular_tz_file(&missing),
+            Err(Error::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound
+        ));
+
+        let fifo = dir.join("tz-fifo");
+        let c_fifo = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(c_fifo.as_ptr(), 0o644) },
+            0,
+            "mkfifo failed: {}",
+            std::io::Error::last_os_error()
+        );
+
+        let unblock_fifo = || {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true);
+            if let Some(nb) = crate::offset::local::open_regular::O_NONBLOCK {
+                opts.custom_flags(nb);
+            }
+            let _ = opts.open(&fifo);
         };
-        let tz_arg = format!(":{path_str}");
 
+        // open_regular_tz_file on FIFO returns promptly without blocking.
+        let fifo_for_open = fifo.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(super::open_regular_tz_file(&fifo_for_open).map(drop));
+        });
+        let res = rx.recv_timeout(Duration::from_secs(5));
+        if res.is_err() {
+            unblock_fifo();
+        }
+        assert!(matches!(
+            res.expect("open_regular_tz_file on FIFO should return without blocking"),
+            Err(Error::InvalidTzFile("TZif path is not a regular file"))
+        ));
+
+        // TimeZone::from_posix_tz on FIFO returns promptly without blocking.
+        let path_str = fifo.to_str().unwrap();
+        let tz_arg = format!(":{path_str}");
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(TimeZone::from_posix_tz(&tz_arg));
         });
+        let res = rx.recv_timeout(Duration::from_secs(5));
+        if res.is_err() {
+            unblock_fifo();
+        }
+        assert!(matches!(
+            res.expect("from_posix_tz on FIFO should return without blocking"),
+            Err(Error::InvalidTzFile("TZif path is not a regular file"))
+        ));
+    }
 
-        let res = rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("from_posix_tz on FIFO should return without blocking");
-        assert!(matches!(res, Err(Error::InvalidTzFile("TZif path is not a regular file"))));
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_tz_file_socket_rejected_before_open() {
+        use std::os::unix::net::UnixListener;
 
-        drop(_guard);
+        // Keep path short so `sun_path` stays within macOS's 104-byte limit.
+        let (dir, _guard) = create_temp_dir("sc-tz");
+        let sock = dir.join("s");
+        // `cross` i686 containers return ENOSYS for socket syscalls.
+        let _listener = match UnixListener::bind(&sock) {
+            Ok(listener) => listener,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::Unsupported | std::io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                eprintln!("skipping socket test: UnixListener::bind failed: {err}");
+                return;
+            }
+            Err(err) => panic!("UnixListener::bind({}) failed: {err}", sock.display()),
+        };
+
+        // `open(2)` on a Unix domain socket fails (ENXIO on Linux, EOPNOTSUPP on macOS), so
+        // `InvalidTzFile("TZif path is not a regular file")` proves the `is_file()` pre-check ran.
+        assert!(matches!(
+            super::open_regular_tz_file(&sock).map(drop),
+            Err(Error::InvalidTzFile("TZif path is not a regular file"))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_tz_file_sets_o_nonblock() {
+        use std::os::unix::io::AsRawFd;
+
+        if let Some(nb) = crate::offset::local::open_regular::O_NONBLOCK {
+            let file = super::open_regular_tz_file("./tests/android/tzdata").unwrap();
+            // SAFETY: `file` owns an open file descriptor and `F_GETFL` takes no extra arguments.
+            let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+            assert_ne!(flags, -1, "fcntl(F_GETFL) failed: {}", std::io::Error::last_os_error());
+            assert_ne!(flags & nb, 0);
+        }
     }
 }

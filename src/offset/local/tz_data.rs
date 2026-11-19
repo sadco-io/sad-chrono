@@ -12,15 +12,10 @@ use std::{
 /// Open a `tzdata` path only if it is a regular file.
 #[cfg(any(test, target_os = "android", target_env = "ohos"))]
 fn open_regular_file(path: &str) -> Result<File> {
-    // Check metadata before opening so a FIFO does not block in `File::open`.
-    if !std::fs::metadata(path)?.is_file() {
-        return Err(Error::new(ErrorKind::InvalidInput, "tzdata path is not a regular file"));
+    match super::open_regular::open_regular_nonblocking(std::path::Path::new(path))? {
+        Some(file) => Ok(file),
+        None => Err(Error::new(ErrorKind::InvalidInput, "tzdata path is not a regular file")),
     }
-    let file = File::open(path)?;
-    if !file.metadata()?.is_file() {
-        return Err(Error::new(ErrorKind::InvalidInput, "tzdata path is not a regular file"));
-    }
-    Ok(file)
 }
 
 /// Get timezone data from the `tzdata` file of HarmonyOS NEXT.
@@ -376,6 +371,13 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
         assert_eq!(err.to_string(), "tzdata path is not a regular file");
 
+        let missing = dir.join(format!("sad-chrono-missing-tzdata-{}", std::process::id()));
+        let _ = std::fs::remove_file(&missing);
+        assert_eq!(
+            open_regular_file(missing.to_str().unwrap()).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+
         assert!(open_regular_file("./tests/android/tzdata").is_ok());
     }
 
@@ -540,5 +542,193 @@ mod tests {
     fn test_android_machine_tz_data_loading() {
         let tzdata = for_zone("Asia/Shanghai").unwrap().unwrap();
         assert!(!tzdata.is_empty());
+    }
+
+    /// Reader that reports a huge (sparse) length but holds only the header/index bytes.
+    struct SparseReader {
+        inner: Cursor<Vec<u8>>,
+        fake_len: u64,
+    }
+    impl Read for SparseReader {
+        fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+            self.inner.read(buf)
+        }
+    }
+    impl Seek for SparseReader {
+        fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+            match pos {
+                SeekFrom::End(off) => Ok((self.fake_len as i64 + off) as u64),
+                other => self.inner.seek(other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_tzdata_caps_checked_before_allocating_sparse() {
+        // Index region: ~4 GiB claimed, file "length" ~8 GiB, only the header is backed.
+        let mut data = Vec::new();
+        data.extend_from_slice(b"tzdata2024a\0");
+        data.extend_from_slice(&24u32.to_be_bytes());
+        data.extend_from_slice(&u32::MAX.to_be_bytes());
+        data.extend_from_slice(&0u32.to_be_bytes());
+        let r = SparseReader { inner: Cursor::new(data), fake_len: 2 * u64::from(u32::MAX) };
+        let err = find_tz_data::<OHOS_ENTRY_LEN, _>(r, b"UTC").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert_eq!(err.to_string(), "tzdata index region exceeds 1 MiB");
+
+        // Entry: ~4 GiB claimed, file "length" ~8 GiB, only header + index are backed.
+        fn entry<const ENTRY_LEN: usize>() {
+            let mut data = Vec::new();
+            data.extend_from_slice(b"tzdata2024a\0");
+            data.extend_from_slice(&24u32.to_be_bytes());
+            data.extend_from_slice(&(24 + ENTRY_LEN as u32).to_be_bytes());
+            data.extend_from_slice(&0u32.to_be_bytes());
+            let mut e = vec![0u8; ENTRY_LEN];
+            e[..3].copy_from_slice(b"UTC");
+            e[TZ_NAME_LEN + 4..TZ_NAME_LEN + 8].copy_from_slice(&u32::MAX.to_be_bytes());
+            data.extend_from_slice(&e);
+            let r = SparseReader { inner: Cursor::new(data), fake_len: 2 * u64::from(u32::MAX) };
+            let err = find_tz_data::<ENTRY_LEN, _>(r, b"UTC").unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidData);
+            assert_eq!(err.to_string(), "tzdata entry exceeds 1 MiB");
+        }
+        entry::<OHOS_ENTRY_LEN>();
+        entry::<ANDROID_ENTRY_LEN>();
+    }
+
+    #[test]
+    fn test_tzdata_caps_are_1_mib() {
+        assert_eq!(MAX_TZDATA_INDEX_LEN, 1 << 20);
+        assert_eq!(MAX_TZDATA_ENTRY_LEN, 1 << 20);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_file_fifo_and_symlink() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        struct RemoveDirOnDrop(std::path::PathBuf);
+        impl Drop for RemoveDirOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!("sad-chrono-tzdata-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let _guard = RemoveDirOnDrop(dir.clone());
+
+        // A symlink to a regular file is accepted (metadata follows links).
+        let link = dir.join("link");
+        let target = std::env::current_dir().unwrap().join("tests/android/tzdata");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(open_regular_file(link.to_str().unwrap()).is_ok());
+
+        // A FIFO with no writer is rejected without blocking in `open`.
+        let fifo = dir.join("tzdata");
+        let c_fifo = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(c_fifo.as_ptr(), 0o644) },
+            0,
+            "mkfifo failed: {}",
+            Error::last_os_error()
+        );
+        let path = fifo.to_str().unwrap().to_owned();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(open_regular_file(&path).map(drop));
+        });
+        let res = rx.recv_timeout(std::time::Duration::from_secs(5));
+        if res.is_err() {
+            // Unblock the reader so the thread can finish.
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true);
+            if let Some(nb) = super::super::open_regular::O_NONBLOCK {
+                opts.custom_flags(nb);
+            }
+            let _ = opts.open(&fifo);
+        }
+        let err = res.expect("open_regular_file blocked on a FIFO").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.to_string(), "tzdata path is not a regular file");
+
+        // Bypass the pre-open metadata check to pin the TOCTOU race fix.
+        if super::super::open_regular::O_NONBLOCK.is_some() {
+            let fifo_path = fifo.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(
+                    super::super::open_regular::open_nonblocking_checked(&fifo_path)
+                        .map(|opt| opt.map(drop)),
+                );
+            });
+            let res = rx.recv_timeout(std::time::Duration::from_secs(5));
+            if res.is_err() {
+                let mut opts = std::fs::OpenOptions::new();
+                opts.write(true);
+                if let Some(nb) = super::super::open_regular::O_NONBLOCK {
+                    opts.custom_flags(nb);
+                }
+                let _ = opts.open(&fifo);
+            }
+            assert!(res.expect("open_nonblocking_checked blocked on a FIFO").unwrap().is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_file_socket_rejected_before_open() {
+        use std::os::unix::net::UnixListener;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        struct RemoveDirOnDrop(std::path::PathBuf);
+        impl Drop for RemoveDirOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        // Keep path short so `sun_path` stays within macOS's 104-byte limit.
+        let unique =
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("sc-td-{}-{unique:x}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let _guard = RemoveDirOnDrop(dir.clone());
+
+        let sock = dir.join("s");
+        // `cross` i686 containers return ENOSYS for socket syscalls.
+        let _listener = match UnixListener::bind(&sock) {
+            Ok(listener) => listener,
+            Err(err)
+                if matches!(err.kind(), ErrorKind::Unsupported | ErrorKind::PermissionDenied) =>
+            {
+                eprintln!("skipping socket test: UnixListener::bind failed: {err}");
+                return;
+            }
+            Err(err) => panic!("UnixListener::bind({}) failed: {err}", sock.display()),
+        };
+
+        // `open(2)` on a Unix domain socket fails (ENXIO on Linux, EOPNOTSUPP on macOS), so
+        // `ErrorKind::InvalidInput` proves the `is_file()` pre-check ran before opening.
+        let err = open_regular_file(sock.to_str().unwrap()).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.to_string(), "tzdata path is not a regular file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_file_sets_o_nonblock() {
+        use std::os::unix::io::AsRawFd;
+
+        if let Some(nb) = super::super::open_regular::O_NONBLOCK {
+            let file = open_regular_file("./tests/android/tzdata").unwrap();
+            // SAFETY: `file` owns an open file descriptor and `F_GETFL` takes no extra arguments.
+            let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+            assert_ne!(flags, -1, "fcntl(F_GETFL) failed: {}", Error::last_os_error());
+            assert_ne!(flags & nb, 0);
+        }
     }
 }

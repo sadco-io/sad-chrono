@@ -25,17 +25,20 @@ ships those fixes, and takes on new ones. It is maintained by the Sadco Security
 
 ## Which version?
 
-* **0.5.x (recommended):** MSRV 1.85, `rkyv` 0.8, and every fix except the `tzdata` 1 MiB caps and
-  regular-file guard added in 0.4.47, which are planned for the next 0.5.x release (see the
+* **0.5.x (recommended):** MSRV 1.85, `rkyv` 0.8, and every fix as of `0.5.1` (see the
   [0.5 README](https://github.com/sadco-io/sad-chrono/blob/main/README.md)).
 * **0.4.x (this line):** security fixes only — MSRV 1.62, `rkyv` 0.7, a strict drop-in for
   `chrono 0.4.x` builds that cannot move (also used by the transitive-dependency `[patch]` route
   below).
 
-`sad-chrono 0.4.47` includes the `tzdata` allocation bound (now with absolute 1 MiB caps and a
-regular-file guard), value-invariant `rkyv` validation for `NaiveDate`, `NaiveTime`, `TimeDelta`,
-`FixedOffset`, and `IsoWeek`, the saturating `From<DateTime<Tz>> for SystemTime` conversion, and
-the `format()` `# Panics` documentation from 0.5.0. Only the `rkyv` 0.8 upgrade
+`sad-chrono 0.4.48` adds the non-blocking `TZ`/TZif and `tzdata` open (`O_NONBLOCK` on the Unix
+targets listed under [Security and robustness fixes](#security-and-robustness-fixes)) and the
+`TimeDelta::checked_mul` range fix, both backported from 0.5.1. It keeps everything in 0.4.47: the
+`tzdata` allocation bound (backported from 0.5.0) with the absolute 1 MiB caps and regular-file
+guard (new in 0.4.47, ported to 0.5.1); value-invariant `rkyv` 0.7 validation for `NaiveDate`,
+`NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek` (new in 0.4.47); and the saturating
+`From<DateTime<Tz>> for SystemTime` conversion and the `format()` `# Panics` documentation
+(backported from 0.5.0). Only the `rkyv` 0.8 upgrade
 ([RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235)) and validation of an
 archived `DateTime<Tz>`'s local-time range (which would require trait bounds that change the `0.4`
 API) are `0.5`-only.
@@ -49,7 +52,7 @@ To switch your own code over without changing any `use chrono::...` paths, renam
 
 ```toml
 [dependencies]
-chrono = { package = "sad-chrono", version = "0.4.47" }
+chrono = { package = "sad-chrono", version = "0.4.48" }
 ```
 
 > **Check your dependencies first.** `sad_chrono::DateTime` and `chrono::DateTime` are distinct
@@ -66,7 +69,7 @@ Or depend on it under its own name and import from `sad_chrono`:
 
 ```toml
 [dependencies]
-sad-chrono = "0.4.47"
+sad-chrono = "0.4.48"
 ```
 
 ```rust
@@ -95,7 +98,7 @@ not used in the crate graph. Applications that want `sad-chrono` everywhere can 
 vendored copy whose package name is set to `chrono`:
 
 ```sh
-git clone --depth 1 --branch v0.4.47 https://github.com/sadco-io/sad-chrono vendor/chrono
+git clone --depth 1 --branch v0.4.48 https://github.com/sadco-io/sad-chrono vendor/chrono
 sed -i.bak 's/^name = "sad-chrono"/name = "chrono"/' vendor/chrono/Cargo.toml
 rm -rf vendor/chrono/.git vendor/chrono/Cargo.toml.bak
 ```
@@ -106,12 +109,12 @@ chrono = { path = "vendor/chrono" }
 ```
 
 Then run `cargo update -p chrono`, and verify that `cargo tree -i chrono` shows
-`chrono v0.4.47 (vendor/chrono)`. Keep your own dependency as plain `chrono = "0.4"` without the
-package rename so that all crates share one `DateTime` type.
+`chrono v0.4.48 (/path/to/your/workspace/vendor/chrono)`. Keep your own dependency as plain
+`chrono = "0.4"` without the package rename so that all crates share one `DateTime` type.
 
 Constraints:
 
-* This works only when every `chrono` requirement in the dependency graph accepts `0.4.47` (a
+* This works only when every `chrono` requirement in the dependency graph accepts `0.4.48` (a
   `^0.4` requirement); an exact pin such as `=0.4.40` blocks it.
 * `[patch]` applies only in the top-level workspace, so a library cannot apply this for its users.
 
@@ -121,7 +124,7 @@ Libraries can switch with the same rename:
 
 ```toml
 [dependencies]
-chrono = { package = "sad-chrono", version = "0.4.47" }
+chrono = { package = "sad-chrono", version = "0.4.48" }
 ```
 
 Because the dependency key stays `chrono`, your `use chrono::...` paths,
@@ -153,7 +156,7 @@ or RFC 3339 strings.
 
 `sad-chrono 0.4.x` keeps the public API of `chrono 0.4` and will not make semver-incompatible
 changes on the `0.4` line. `0.4.x` is now security-fixes-only; new work lands in `0.5.x`. Version
-numbers continue `chrono`'s `0.4` sequence independently of upstream: `sad-chrono 0.4.47` contains
+numbers continue `chrono`'s `0.4` sequence independently of upstream: `sad-chrono 0.4.48` contains
 `chrono 0.4.45` plus the fixes listed in
 [CHANGELOG.md](https://github.com/sadco-io/sad-chrono/blob/0.4.x/CHANGELOG.md). Security fixes
 from any new upstream `0.4.x` release are backported to the next `sad-chrono 0.4.x` release, and
@@ -173,14 +176,15 @@ Fixes in `sad-chrono` that are not in any released version of chrono:
 | TZif header with huge record counts ([chrono#1802][audit]) | `usize` overflow panic on 32-bit targets | Rejected as an invalid TZif file |
 | POSIX `TZ` with implicit DST offset reaching ±24h (e.g. `AAA-23BBB,J1,J365`) | `Local::now()` panics | Rejected as invalid `TZ`; `Local` falls back |
 | TZif local time type with UTC offset outside ±23:59:59 | `Local::now()` panics | Rejected as invalid TZif; `Local` falls back |
-| `TZ` pointing to a non-regular file or > 1 MiB file (e.g. `/dev/zero`, FIFO) | Unbounded read / memory exhaustion or hang | Rejected before reading (`is_file()`) or capped at 1 MiB; `Local` falls back |
+| `TZ` pointing to a non-regular file or > 1 MiB file (e.g. `/dev/zero`, FIFO) (pre-check & 1 MiB cap 0.4.46; non-blocking open 0.4.48) | Unbounded read / memory exhaustion or hang | Checked with `is_file()` before and after opening, and capped at 1 MiB; since 0.4.48, opened non-blocking (`O_NONBLOCK`) on Linux/Android/OHOS (`x86`/`x86_64`/`arm`/`aarch64`/`riscv*`/`s390x`/`powerpc*`/`loongarch64`), Apple, FreeBSD/DragonFly/NetBSD/OpenBSD, and Solaris/illumos, so a FIFO swapped in after the pre-check cannot block the open there (it still can before 0.4.48 and on other Unix targets); `Local` falls back |
 | TZif transition times near `i64::MIN` / `i64::MAX` | Overflow panic when mapping a local time (wraps in release builds) | Saturating arithmetic, no panic |
 | Android / OpenHarmony tzdata index with a partial trailing entry | Out-of-bounds slice panic | Partial entry skipped |
 | Android / OpenHarmony tzdata with oversized header or entry lengths (0.4.47) | Up to 4 GiB allocation before failing (panic or abort on 32-bit targets) | Rejected against file length and 1 MiB caps before allocating |
-| Android / OpenHarmony tzdata path that is a FIFO or non-regular file (0.4.47) | Blocks in `File::open` | Rejected before opening (`is_file()`) |
+| Android / OpenHarmony tzdata path that is a FIFO or non-regular file (pre-check 0.4.47; non-blocking open 0.4.48) | Blocks in `File::open` | Checked with `is_file()` before and after opening; since 0.4.48, opened non-blocking (`O_NONBLOCK`) on every current Android and OpenHarmony target, so a FIFO swapped in after the pre-check cannot block the open (before 0.4.48 it still could) |
 | `DateTime<Utc>::from(SystemTime)` outside `DateTime`'s range ([chrono#1802][audit]) | Panic | Saturates to `DateTime::MIN_UTC` / `MAX_UTC` |
-| `From<DateTime<Tz>> for SystemTime` outside platform range (0.4.47) | Panic | Saturates to the nearest representable `SystemTime` |
+| `From<DateTime<Tz>> for SystemTime` outside platform range (0.4.47) | Panic | Saturates at the limit of checked arithmetic from `UNIX_EPOCH` in that direction |
 | `NaiveDate::from_isoywd_opt` with `i32::MIN` / `i32::MAX` years | Overflow panic in builds with overflow checks (wraps in release builds) | Returns `None`, as documented |
+| `TimeDelta::checked_mul` / `TimeDelta * i32` exceeding `[TimeDelta::MIN, TimeDelta::MAX]` (0.4.48) | Returns an out-of-range `TimeDelta` (later `num_milliseconds()` panics or wraps) | `checked_mul` returns `None`; `*` panics on overflow |
 | Formatting offsets of `±23:59:30` or more to minute precision | Emits `+24:00`, which fails to parse back | Clamped to `+23:59` |
 | Validated `rkyv` archives with out-of-range `NaiveDate`, `NaiveTime`, `TimeDelta`, `FixedOffset`, or `IsoWeek` values (0.4.47) | Accepted; later use could panic or return wrong values | Rejected by `CheckBytes` invariant checks (active with `rkyv-validation`; `DateTime<Tz>` local-time range check is `0.5`-only) |
 

@@ -6,7 +6,7 @@
 //! `chrono::` paths unchanged, rename the dependency:
 //!
 //! ```toml
-//! chrono = { package = "sad-chrono", version = "0.4.47" }
+//! chrono = { package = "sad-chrono", version = "0.4.48" }
 //! ```
 //!
 //! Note that `sad_chrono` types are distinct from upstream `chrono` types: if a dependency
@@ -308,7 +308,7 @@
 //! additional C library. This functionality is under the feature `unstable-locales`:
 //!
 //! ```toml
-//! sad-chrono = { version = "0.4.47", features = ["unstable-locales"] }
+//! sad-chrono = { version = "0.4.48", features = ["unstable-locales"] }
 //! ```
 //!
 //! The `unstable-locales` feature requires and implies at least the `alloc` feature.

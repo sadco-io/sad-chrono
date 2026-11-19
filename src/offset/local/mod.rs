@@ -28,6 +28,9 @@ mod inner;
 #[allow(unreachable_pub)]
 mod win_bindings;
 
+#[cfg(any(unix, test))]
+mod open_regular;
+
 #[cfg(all(any(target_os = "android", target_env = "ohos", test), feature = "clock"))]
 mod tz_data;
 
