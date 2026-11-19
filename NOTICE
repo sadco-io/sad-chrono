@@ -46,6 +46,18 @@ In `sad-chrono` 0.4.47, the following additional modifications were made:
   `NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek` under
   `rkyv-validation`
 
+In `sad-chrono` 0.4.48, the following additional modifications were made:
+
+- Security and robustness fixes backported from `sad-chrono` 0.5.1:
+  non-blocking (`O_NONBLOCK`) open (with non-regular files rejected by
+  the existing post-open `is_file()` check) for TZif (`TZ`,
+  `/etc/localtime`, and system fallbacks) and Android/OpenHarmony
+  `tzdata` files on the Unix targets listed in CHANGELOG.md (other Unix
+  targets still verify `is_file()` before and after opening without
+  `O_NONBLOCK`), and `[TimeDelta::MIN, TimeDelta::MAX]` range enforcement
+  in `TimeDelta::checked_mul` (plus `# Panics` documentation on
+  `TimeDelta` arithmetic operators)
+
 The upstream fixes listed above were written by their upstream authors;
 see CHANGELOG.md for attribution of each change. The packaging changes
 and the Sadco Security Team fixes listed above were developed by the
