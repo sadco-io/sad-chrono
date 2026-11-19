@@ -10,6 +10,63 @@ earlier ones further down this file.
 Entries reference the upstream chrono pull request or issue each change came
 from, as `chrono#NNNN`.
 
+## Unreleased
+
+### CI
+
+* Add `x86_64-unknown-netbsd`, `x86_64-pc-solaris`, and `s390x-unknown-linux-gnu`
+  to `alternative_targets` and compile `--lib --tests` with `RUSTFLAGS="-D
+  warnings"` on those targets (alongside `aarch64-linux-android`,
+  `aarch64-unknown-linux-ohos`, `x86_64-unknown-illumos`, and
+  `x86_64-unknown-freebsd`) to verify each per-target `O_NONBLOCK` constant's
+  compile-time assertion.
+
+## sad-chrono 0.4.48
+
+Released from the `0.4.x` maintenance branch.
+
+Security release on the 0.4 maintenance line. It is API-compatible with
+0.4.47, and the MSRV (1.62.0) and rkyv 0.7 are unchanged. When a product falls
+outside the `TimeDelta` range, `TimeDelta::checked_mul` now returns `None` and
+`TimeDelta * i32` now panics. On the Unix targets listed below, opening TZif
+and `tzdata` files also no longer waits for a FIFO writer.
+[`sad-chrono 0.5.1`](https://github.com/sadco-io/sad-chrono/releases/tag/v0.5.1)
+(MSRV 1.85, rkyv 0.8) is the recommended line; `0.4.x` receives security
+fixes only.
+
+### Security and robustness
+
+* Open TZif (`TZ`, `/etc/localtime`, and system fallback paths) and
+  Android/OpenHarmony `tzdata` files with `O_NONBLOCK` on the Unix targets
+  listed below so that opening a FIFO for reading does not wait for a writer,
+  and reject non-regular files through the existing `is_file()` check on the
+  opened `File` handle (present since `0.4.46` for `TZ` and `0.4.47` for
+  `tzdata`; the pre-open `is_file()` check is kept as a fast path). On those
+  targets, this closes a race in which a FIFO swapped in after the `is_file()`
+  pre-check could hang `Local::now()` or the `tzdata` loader indefinitely.
+  `O_NONBLOCK` is enabled on Linux (including OpenHarmony) and Android on `x86`,
+  `x86_64`, `arm`, `aarch64`, `riscv32`, `riscv64`, `s390x`, `powerpc`,
+  `powerpc64`, and `loongarch64` (every current Android and OpenHarmony target);
+  on Apple platforms, FreeBSD, DragonFly, NetBSD, and OpenBSD; and on Solaris
+  and illumos. Other Unix targets open without `O_NONBLOCK` but still verify
+  `is_file()` both before and after opening, so the race is not closed there.
+  Backported from `0.5.1`.
+* Enforce `[TimeDelta::MIN, TimeDelta::MAX]` bounds in `TimeDelta::checked_mul`
+  via `TimeDelta::new`, returning `None` instead of an out-of-range `TimeDelta`
+  (on which `num_milliseconds()` could panic with overflow checks enabled or
+  wrap with them disabled). `TimeDelta * i32` now panics with its overflow
+  message instead of returning an out-of-range value. Document `# Panics` on
+  `TimeDelta` arithmetic operators (`Add`, `Sub`, `AddAssign`, `SubAssign`,
+  `Mul<i32>`, `Div<i32>`, and `Sum`) (backported from `0.5.1`).
+
+### CI
+
+* Add `x86_64-unknown-illumos`, `x86_64-unknown-freebsd`,
+  `x86_64-unknown-netbsd`, `x86_64-pc-solaris`, and `s390x-unknown-linux-gnu`
+  to `alternative_targets` and compile `--lib --tests` with `RUSTFLAGS="-D
+  warnings"` across those targets plus `aarch64-linux-android` and
+  `aarch64-unknown-linux-ohos` to verify the hardcoded `O_NONBLOCK` constants.
+
 ## sad-chrono 0.5.1
 
 Patch release on the 0.5 line. Public API, MSRV (Rust 1.85.0), and serde/rkyv
@@ -19,26 +76,28 @@ wire formats are unchanged from `0.5.0`.
 
 * Android and OpenHarmony `tzdata`: cap index-region and per-entry lengths at
   1 MiB before allocating, and require the `tzdata` path to be a regular file
-  (ported from `0.4.47`; strengthened below with non-blocking open so a FIFO
-  or special file cannot block even under a concurrent path swap on the
-  platforms listed below). In `0.5.0`, lengths were bounded only against the
-  file's reported length, so a sparse file could still force GiB-sized
-  allocations before failing.
-* Open TZif (`TZ`) and Android/OpenHarmony `tzdata` files non-blocking
-  (`O_NONBLOCK`) on Unix and verify `is_file()` on the opened `File` handle
-  (keeping the pre-open `is_file()` check as a fast path). This closes a race
-  in which a FIFO swapped in after the `0.4.46` / `0.4.47` `is_file()`
-  pre-check could hang `Local::now()` or the `tzdata` loader indefinitely.
-  `O_NONBLOCK` is enabled on Linux and Android (including OpenHarmony) on
+  (ported from `0.4.47`; strengthened below with a non-blocking open so that a
+  FIFO swapped in concurrently cannot block the open on the platforms listed
+  below). In `0.5.0`, lengths were bounded only against the file's reported
+  length, so a sparse file could still force GiB-sized allocations before
+  failing.
+* Open TZif (`TZ`) and Android/OpenHarmony `tzdata` files with `O_NONBLOCK` on
+  the Unix targets listed below, and verify `is_file()` on the opened `File`
+  handle (keeping the pre-open `is_file()` check as a fast path). On those
+  targets, this closes a race in which a FIFO swapped in after the `is_file()`
+  pre-check (present for `TZ` since `0.4.46` / `0.5.0`, and for `tzdata` since
+  `0.4.47`) could hang `Local::now()` or the `tzdata` loader indefinitely.
+  `O_NONBLOCK` is enabled on Linux (including OpenHarmony) and Android on
   `x86`, `x86_64`, `arm`, `aarch64`, `riscv32`, `riscv64`, `s390x`, `powerpc`,
-  `powerpc64`, and `loongarch64`; Apple platforms, FreeBSD, DragonFly, NetBSD,
-  and OpenBSD; and Solaris and illumos. Other Unix targets keep the
-  check-then-open behavior. Not in `0.4.47`.
+  `powerpc64`, and `loongarch64`; on Apple platforms, FreeBSD, DragonFly,
+  NetBSD, and OpenBSD; and on Solaris and illumos. Other Unix targets open
+  without `O_NONBLOCK` but still verify `is_file()` both before and after
+  opening, so the race is not closed there. Not in `0.4.47`.
 * Enforce `[TimeDelta::MIN, TimeDelta::MAX]` bounds in `TimeDelta::checked_mul`
   via `TimeDelta::new`, returning `None` instead of an out-of-range `TimeDelta`
-  (where `num_milliseconds()` subsequently panicked in debug builds or wrapped
-  in release builds). `TimeDelta * i32` now panics with its overflow message
-  instead of returning an out-of-range value. Document `# Panics` on
+  (on which `num_milliseconds()` could panic with overflow checks enabled or
+  wrap with them disabled). `TimeDelta * i32` now panics with its overflow
+  message instead of returning an out-of-range value. Document `# Panics` on
   `TimeDelta` arithmetic operators (`Add`, `Sub`, `AddAssign`, `SubAssign`,
   `Mul<i32>`, `Div<i32>`, and `Sum`). Not in `0.4.47`.
 
@@ -52,9 +111,11 @@ wire formats are unchanged from `0.5.0`.
 * Pin `wasm-pack` to `v0.15.1` in `test_wasm` (`0.5.0` intended all CI tools to
   be version-pinned, but missed `wasm-pack-action` floating to `latest`), and
   update `taiki-e/install-action` SHA comments from `# v2` to `# v2.90.5`.
-* Add `aarch64-unknown-linux-ohos` to `alternative_targets` and compile `--lib
-  --tests` on both `aarch64-linux-android` and `aarch64-unknown-linux-ohos` so
-  the on-device `tzdata` tests are checked in CI.
+* Add `aarch64-unknown-linux-ohos`, `x86_64-unknown-illumos`, and
+  `x86_64-unknown-freebsd` to `alternative_targets`, and compile `--lib --tests`
+  with `-D warnings` on those three targets and `aarch64-linux-android`, so the
+  on-device `tzdata` tests and the per-platform `O_NONBLOCK` constants are
+  checked in CI.
 * Add a `0.4.x` `github-actions` entry to `.github/dependabot.yml` so
   Dependabot updates action SHA pins on the `0.4.x` maintenance branch as well.
 
@@ -73,12 +134,14 @@ fixes only.
 * Android and OpenHarmony `tzdata`: header index-region and per-entry lengths
   are checked against the file length (`SeekFrom::End(0)`) and capped at 1 MiB
   before allocating, the reader seeks to `index_offset` before reading the
-  index, and the `tzdata` path must be a regular file (`is_file()` checked
-  before opening and again on the opened `File`, preventing hangs on FIFOs or
-  special files). Previously a malformed bundle could make the reader allocate
-  up to 4 GiB before failing on 64-bit targets, and panic (`capacity overflow`)
-  or abort on 32-bit. Malformed bundles are now rejected with `UnexpectedEof`
-  or `InvalidData`, and non-regular paths with `InvalidInput` (file-length
+  index, and the `tzdata` path must be a regular file (`is_file()` is checked
+  before opening and again on the opened handle; a concurrent path replacement
+  can still block the open in `0.4.47`). Previously a malformed bundle could
+  make the reader allocate up to 4 GiB before failing on 64-bit targets, and
+  panic (`capacity overflow`) or abort on 32-bit. An index region or selected
+  entry extending past the end of the file returns `UnexpectedEof`, a region
+  or selected entry exceeding its 1 MiB cap returns `InvalidData` when it fits
+  within the file, and non-regular paths return `InvalidInput` (file-length
   bounds backported from `0.5.0`; 1 MiB caps and regular-file guard new in
   `0.4.47`).
 * With `rkyv-validation`, `CheckBytes` validation now enforces value
@@ -86,11 +149,13 @@ fixes only.
   `TimeDelta`, `FixedOffset`, and `IsoWeek`, so untrusted archives containing
   out-of-range or inconsistent values are rejected during validation instead
   of panicking or returning wrong values on subsequent use.
-* `From<DateTime<Tz>> for SystemTime` now saturates to the platform's nearest
-  representable `SystemTime` using `checked_add` / `checked_sub` and binary
-  search, and normalizes leap seconds before inverting pre-epoch offsets.
-  Previously the conversion panicked on Windows below 1601 or above 30828,
-  and before 1970 on `wasm32-unknown-unknown` (backported from `0.5.0`).
+* `From<DateTime<Tz>> for SystemTime` now saturates at the limit of checked
+  arithmetic from `UNIX_EPOCH` in that direction using `checked_add` /
+  `checked_sub` and binary search, and normalizes leap seconds before
+  inverting pre-epoch offsets. Previously the conversion could panic outside
+  the Windows arithmetic range (on Rust 1.94 and later, January 1601 to
+  September 30828), and before 1970 on `wasm32-unknown-unknown` (backported
+  from `0.5.0`).
 * Document `# Panics` sections on `DateTime::format`, `NaiveDateTime::format`,
   `NaiveDate::format`, and `NaiveTime::format` covering all failure classes
   (invalid specifiers, parse-only specifiers such as `%#z`, and specifiers for
@@ -152,9 +217,9 @@ bounds Android/OpenHarmony `tzdata` allocations by file length, and makes
   and `rkyv-64` mapping to `rkyv`'s `pointer_width_*` features (and now enabling
   `rkyv/bytecheck` directly; `rkyv-validation` remains as a compatibility
   feature adding `rkyv/alloc`).
-* `From<DateTime<Tz>> for SystemTime` now saturates to the platform's nearest
-  representable `SystemTime` instead of panicking on out-of-range dates
-  (behavior change).
+* `From<DateTime<Tz>> for SystemTime` now saturates at the limit of checked
+  arithmetic from `UNIX_EPOCH` in that direction instead of panicking on
+  out-of-range dates (behavior change).
 
 ### Security and robustness
 
@@ -245,8 +310,8 @@ and chrono#1825.
   existing fallback for an invalid `TZ` (by the Sadco Security Team).
 * Require TZif files loaded via `TZ=<path>`, `TZ=:<path>`,
   `/etc/localtime`, or the `iana-time-zone` fallback to be regular files
-  (`is_file()`) and cap reads at 1 MiB, preventing memory exhaustion or
-  hangs on special files such as `/dev/zero` or FIFOs (by the Sadco
+  (`is_file()`) and cap reads at 1 MiB, bounding TZif reads and rejecting
+  paths already identified as non-regular before opening (by the Sadco
   Security Team).
 * TZif local time lookup: avoid `i64` overflow for transition times near
   `i64::MIN` / `i64::MAX` (chrono#1796, by nvxbug).

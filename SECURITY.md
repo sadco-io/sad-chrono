@@ -4,8 +4,8 @@
 
 | Version | Supported | Notes |
 |---------|-----------|-------|
-| `0.5.x` | All fixes | Current release line |
-| `0.4.x` | Security fixes only | Maintained on the `0.4.x` branch. `0.4.47` includes the `tzdata` allocation bound (with 1 MiB caps and regular-file guard), value-invariant `rkyv` 0.7 validation for `NaiveDate`, `NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek`, saturating `From<DateTime<Tz>> for SystemTime`, and `format()` `# Panics` docs. The `rkyv` 0.8 upgrade (RUSTSEC-2026-0235) and `DateTime<Tz>` local-time range validation are `0.5`-only, and the `0.5.1` `TimeDelta::checked_mul` range fix and non-blocking `TZ`/`tzdata` open are not in `0.4.47` yet. |
+| `0.5.x` | All fixes | Current release line; use `0.5.1` or later, the first `0.5` release with the `tzdata` 1 MiB caps and regular-file guard, the non-blocking `TZ`/`tzdata` open (on the same Unix targets as `0.4.48` below; other Unix targets keep only the `is_file()` checks), and the `TimeDelta::checked_mul` range fix. |
+| `0.4.x` | Security fixes only | Maintained on the `0.4.x` branch. `0.4.48` adds non-blocking (`O_NONBLOCK`) open for `TZ`/`tzdata` (on Apple platforms, FreeBSD, DragonFly, NetBSD, OpenBSD, Solaris, illumos, and Linux/Android/OpenHarmony on `x86`, `x86_64`, `arm`, `aarch64`, `riscv32`, `riscv64`, `s390x`, `powerpc`, `powerpc64`, and `loongarch64`; other Unix targets keep only the `is_file()` checks) and the `TimeDelta::checked_mul` range fix to `0.4.47` (which includes the `tzdata` allocation bound with 1 MiB caps and regular-file guard, value-invariant `rkyv` validation for `NaiveDate`, `NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek`, saturating `From<DateTime<Tz>> for SystemTime`, and `format()` `# Panics` docs). Only the `rkyv` 0.8 upgrade (RUSTSEC-2026-0235) and `DateTime<Tz>` local-time range validation are `0.5`-only. |
 | `< 0.4.46` | No | Upgrade to `0.5.x` or `0.4.x` |
 
 ## Scope

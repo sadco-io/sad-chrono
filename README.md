@@ -25,18 +25,21 @@ ships those fixes, and takes on new ones. It is maintained by the Sadco Security
 
 ## Which version?
 
-* **0.5.x** (recommended): MSRV 1.85, `rkyv` 0.8, and every fix.
+* **0.5.x** (recommended): MSRV 1.85, `rkyv` 0.8, and every fix as of `0.5.1`.
 * **0.4.x**: maintained on the `0.4.x` branch for security fixes only — MSRV 1.62, `rkyv` 0.7, a
   strict drop-in for `chrono 0.4.x` builds that cannot move (also used by the transitive-dependency
   `[patch]` route below).
 
-`sad-chrono 0.4.47` (the security-fixes-only maintenance release) includes the `tzdata` allocation
-bound (with absolute 1 MiB caps and a regular-file guard), value-invariant `rkyv` 0.7 validation for
-`NaiveDate`, `NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek`, the saturating
-`From<DateTime<Tz>> for SystemTime` conversion, and the `format()` `# Panics` documentation. The
-`rkyv` 0.8 upgrade ([RUSTSEC-2026-0235][rustsec-rkyv]) and validation of an archived
-`DateTime<Tz>`'s local-time range are `0.5`-only, and the `0.5.1` `TimeDelta::checked_mul` range
-fix and non-blocking `TZ`/`tzdata` open are not in `0.4.47` yet.
+`sad-chrono 0.4.48` adds the non-blocking `TZ`/TZif and `tzdata` open (`O_NONBLOCK` on the Unix
+targets listed under [Security and robustness fixes](#security-and-robustness-fixes)) and the
+`TimeDelta::checked_mul` range fix, both backported from 0.5.1. It keeps everything in 0.4.47: the
+`tzdata` allocation bound (backported from 0.5.0) with the absolute 1 MiB caps and regular-file
+guard (new in 0.4.47, ported to 0.5.1); value-invariant `rkyv` 0.7 validation for `NaiveDate`,
+`NaiveTime`, `TimeDelta`, `FixedOffset`, and `IsoWeek` (new in 0.4.47); and the saturating
+`From<DateTime<Tz>> for SystemTime` conversion and the `format()` `# Panics` documentation
+(backported from 0.5.0). Only the `rkyv` 0.8 upgrade ([RUSTSEC-2026-0235][rustsec-rkyv]) and
+validation of an archived `DateTime<Tz>`'s local-time range (which would require trait bounds that
+change the `0.4` API) are `0.5`-only.
 
 `sad-chrono 0.5` is **chrono 0.4's API with current dependencies**. It is not upstream's
 unreleased chrono 0.5 / `0.5.0-alpha` API.
@@ -91,14 +94,15 @@ with these differences from chrono `0.4.45` / `sad-chrono 0.4.46`:
   remains as a compatibility feature that also enables `rkyv/alloc` (needed for the high-level
   `rkyv::to_bytes`, `rkyv::from_bytes`, and `rkyv::access`; no-alloc users call
   `rkyv::api::low::{access, from_bytes}`, which run the same semantic checks).
-* **`From<DateTime<Tz>> for SystemTime` saturates** to the platform's nearest representable
-  `SystemTime` instead of panicking on out-of-range dates.
+* **`From<DateTime<Tz>> for SystemTime` saturates** to the limit of checked arithmetic from
+  `UNIX_EPOCH` in that direction instead of panicking on out-of-range dates.
 * **Malformed Android / OpenHarmony `tzdata` is rejected before allocating** when header or index
   lengths exceed the file size or 1 MiB caps, and TZif (`TZ`) / `tzdata` paths must be regular
   files (pre-checked with `is_file()`, and opened with `O_NONBLOCK` then checked on the open handle
-  on Linux/Android/OpenHarmony on `x86`/`x86_64`/`arm`/`aarch64`/`riscv32`/`riscv64`/`s390x`/`powerpc`/`powerpc64`/`loongarch64`,
-  Apple/FreeBSD/DragonFly/NetBSD/OpenBSD, and Solaris/illumos; other Unix targets keep the
-  check-then-open behavior).
+  on Linux (including OpenHarmony) and Android on `x86`/`x86_64`/`arm`/`aarch64`/`riscv32`/`riscv64`/`s390x`/`powerpc`/`powerpc64`/`loongarch64`,
+  Apple/FreeBSD/DragonFly/NetBSD/OpenBSD, and Solaris/illumos; other Unix targets open without
+  `O_NONBLOCK` but still verify `is_file()` both before and after opening, so a FIFO swapped in
+  after the pre-check can still block the open there).
 * **`TimeDelta::checked_mul` returns `None` instead of an out-of-range `TimeDelta`** when the
   product exceeds `[TimeDelta::MIN, TimeDelta::MAX]`.
 * **Everything else, including serde formats, is unchanged.** Golden tests in
@@ -107,8 +111,8 @@ with these differences from chrono `0.4.45` / `sad-chrono 0.4.46`:
 
 ### Migrating from 0.4.46
 
-These steps also apply from `0.4.47`, except step 4, because `0.4.47` already saturates
-`SystemTime`.
+These steps also apply from `0.4.47` (except step 4, because `0.4.47` already saturates
+`SystemTime`) and from `0.4.48` (except steps 4 and 5, because `0.4.48` already includes both).
 
 1. Bump your dependency to `version = "0.5"` (or `sad-chrono = "0.5"`). If your crate exposes
    `sad-chrono` types in its public API, moving from `sad-chrono 0.4` to `0.5` is a breaking change
@@ -124,24 +128,25 @@ These steps also apply from `0.4.47`, except step 4, because `0.4.47` already sa
      `rkyv::from_bytes::<T, rkyv::rancor::Error>(&b)`, and `rkyv::check_archived_root` ->
      `rkyv::access::<rkyv::Archived<T>, rkyv::rancor::Error>`), and re-archive stored data.
 4. Review callers of `From<DateTime<Tz>> for SystemTime` if any relied on out-of-range dates
-   panicking instead of saturating to the platform's nearest representable `SystemTime`.
-5. Since `0.5.1`, `TimeDelta * i32` panics and `TimeDelta::checked_mul` returns `None` instead of
-   an out-of-range `TimeDelta`.
+   panicking instead of saturating to the limit of checked arithmetic from `UNIX_EPOCH` in that
+   direction.
+5. Since `0.5.1` (and `0.4.48` on the `0.4` line), `TimeDelta * i32` panics and
+   `TimeDelta::checked_mul` returns `None` instead of an out-of-range `TimeDelta` (users migrating
+   from `0.4.48` already have this).
 
 ### Transitive dependencies
 
-This route uses the `0.4.x` line (MSRV 1.62, `rkyv` 0.7, without the `0.5`-only fixes or the
-`0.5.1` fixes), because
+This route uses the `0.4.x` line (MSRV 1.62, `rkyv` 0.7, without the `0.5`-only fixes), because
 other crates in your dependency graph require `chrono = "^0.4"`. Cargo's `[patch]` matches both
 package name and compatible version requirement, so Cargo ignores both `[patch.crates-io] chrono =
 { package = "sad-chrono", ... }` and a renamed `0.5.x` copy (`patch chrono v0.5.1 was not used
 in the crate graph`). Run `cargo tree -i chrono` to see which crates pull upstream `chrono`.
 Applications that want `sad-chrono` everywhere can patch with a vendored `0.4.x` release tag
-whose package name is set to `chrono` (use the newest `v0.4.*` release tag, `v0.4.47` at the time
+whose package name is set to `chrono` (use the newest `v0.4.*` release tag, `v0.4.48` at the time
 of writing):
 
 ```sh
-git clone --depth 1 --branch v0.4.47 https://github.com/sadco-io/sad-chrono vendor/chrono
+git clone --depth 1 --branch v0.4.48 https://github.com/sadco-io/sad-chrono vendor/chrono
 sed -i.bak 's/^name = "sad-chrono"/name = "chrono"/' vendor/chrono/Cargo.toml
 rm -rf vendor/chrono/.git vendor/chrono/Cargo.toml.bak
 ```
@@ -152,8 +157,9 @@ chrono = { path = "vendor/chrono" }
 ```
 
 Then run `cargo update -p chrono`, and verify that `cargo tree -i chrono` shows
-`chrono v0.4.47 (vendor/chrono)` (or the `v0.4.*` release tag you cloned). Keep your own dependency
-as plain `chrono = "0.4"` without the package rename so that all crates share one `DateTime` type.
+`chrono v0.4.48 (/path/to/your/workspace/vendor/chrono)` (or the `v0.4.*` release tag you cloned).
+Keep your own dependency as plain `chrono = "0.4"` without the package rename so that all crates
+share one `DateTime` type.
 
 Constraints:
 
@@ -218,15 +224,15 @@ Fixes in `sad-chrono` that are not in any released version of chrono:
 | TZif header with huge record counts ([chrono#1802][audit]) | `usize` overflow panic on 32-bit targets | Rejected as an invalid TZif file |
 | POSIX `TZ` with implicit DST offset reaching ±24h (e.g. `AAA-23BBB,J1,J365`) | `Local::now()` panics | Rejected as invalid `TZ`; `Local` falls back |
 | TZif local time type with UTC offset outside ±23:59:59 | `Local::now()` panics | Rejected as invalid TZif; `Local` falls back |
-| `TZ` pointing to a non-regular file or > 1 MiB file (e.g. `/dev/zero`, FIFO) (pre-check & 1 MiB cap 0.4.46; non-blocking open 0.5.1) | Unbounded read / memory exhaustion or hang | Pre-checked with `is_file()` and capped at 1 MiB; on Linux/Android/OHOS (`x86`/`x86_64`/`arm`/`aarch64`/`riscv*`/`s390x`/`powerpc*`/`loongarch64`), Apple/BSD, and Solaris/illumos, opened non-blocking (`O_NONBLOCK`) and checked on the opened handle (before 0.5.1, a concurrent swap could still block); `Local` falls back |
+| `TZ` pointing to a non-regular file or > 1 MiB file (e.g. `/dev/zero`, FIFO) (pre-check & 1 MiB cap 0.4.46; non-blocking open 0.5.1, 0.4.48) | Unbounded read / memory exhaustion or hang | Checked with `is_file()` before and after opening, and capped at 1 MiB; since 0.5.1 and 0.4.48, opened non-blocking (`O_NONBLOCK`) on Linux (including OHOS) and Android (`x86`/`x86_64`/`arm`/`aarch64`/`riscv*`/`s390x`/`powerpc*`/`loongarch64`), Apple, FreeBSD/DragonFly/NetBSD/OpenBSD, and Solaris/illumos, so a FIFO swapped in after the pre-check cannot block the open there (it still can in 0.5.0, before 0.4.48, and on other Unix targets); `Local` falls back |
 | TZif transition times near `i64::MIN` / `i64::MAX` | Overflow panic when mapping a local time (wraps in release builds) | Saturating arithmetic, no panic |
 | Android / OpenHarmony tzdata index with a partial trailing entry | Out-of-bounds slice panic | Partial entry skipped |
-| Android / OpenHarmony tzdata with oversized header or entry lengths (file-length bound 0.5.0; 1 MiB caps 0.5.1, 0.4.47) | Up to 4 GiB allocation before failing (panic or abort on 32-bit targets) | Rejected against file length and 1 MiB caps before allocating |
-| Android / OpenHarmony tzdata path that is a FIFO or non-regular file (pre-check 0.5.1, 0.4.47; non-blocking open 0.5.1) | Blocks in `File::open` | Pre-checked with `is_file()`; on listed platforms (including Linux/Android/OHOS), opened non-blocking (`O_NONBLOCK`) and checked on the opened handle (before 0.5.1, a concurrent swap could still block) |
+| Android / OpenHarmony tzdata with oversized header or entry lengths (file-length bound 0.5.0, 0.4.47; 1 MiB caps 0.5.1, 0.4.47) | Up to 4 GiB allocation before failing (panic or abort on 32-bit targets) | Rejected against file length and 1 MiB caps before allocating |
+| Android / OpenHarmony tzdata path that is a FIFO or non-regular file (pre-check 0.5.1, 0.4.47; non-blocking open 0.5.1, 0.4.48) | Blocks in `File::open` | Checked with `is_file()` before and after opening; since 0.5.1 and 0.4.48, opened non-blocking (`O_NONBLOCK`) on every current Android and OpenHarmony target, so a FIFO swapped in after the pre-check cannot block the open (0.4.46 and 0.5.0 had no `is_file()` check; in 0.4.47 a concurrent swap could still block) |
 | `DateTime<Utc>::from(SystemTime)` outside `DateTime`'s range ([chrono#1802][audit]) | Panic | Saturates to `DateTime::MIN_UTC` / `MAX_UTC` |
-| `From<DateTime<Tz>> for SystemTime` outside platform range (0.5.0, 0.4.47) | Panic | Saturates to the nearest representable `SystemTime` |
+| `From<DateTime<Tz>> for SystemTime` outside platform range (0.5.0, 0.4.47) | Panic | Saturates to the limit of checked arithmetic from `UNIX_EPOCH` in that direction |
 | `NaiveDate::from_isoywd_opt` with `i32::MIN` / `i32::MAX` years | Overflow panic in builds with overflow checks (wraps in release builds) | Returns `None`, as documented |
-| `TimeDelta::checked_mul` / `TimeDelta * i32` exceeding `[TimeDelta::MIN, TimeDelta::MAX]` (0.5.1) | Returns an out-of-range `TimeDelta` (later `num_milliseconds()` panics or wraps) | `checked_mul` returns `None`; `*` panics on overflow |
+| `TimeDelta::checked_mul` / `TimeDelta * i32` exceeding `[TimeDelta::MIN, TimeDelta::MAX]` (0.5.1, 0.4.48) | Returns an out-of-range `TimeDelta` (later `num_milliseconds()` can panic or wrap) | `checked_mul` returns `None`; `*` panics on overflow |
 | Formatting offsets of `±23:59:30` or more to minute precision | Emits `+24:00`, which fails to parse back | Clamped to `+23:59` |
 | `rkyv` 0.7 out-of-bounds read in checked validation of `Rc`/`Arc`/`Weak` pointers to unsized data ([RUSTSEC-2026-0235][rustsec-rkyv], 0.5.0) | Uses vulnerable unmaintained `rkyv` 0.7 (`sad-chrono`'s own types contain no shared pointers); `0.4.x` still carries `rkyv` 0.7 | Fixed by upgrading to `rkyv` 0.8.18 (patched in `>=0.8.17`) |
 | Validated `rkyv` archives with out-of-range dates, times, offsets, durations, ISO weeks, or `DateTime` local-time ranges (0.5.0; non-`DateTime` types in 0.4.47) | Accepted; later use could panic or return wrong values | 0.5.x: `bytecheck` `Verify`, active with any `rkyv*` feature; 0.4.47: rkyv 0.7 `CheckBytes` invariant checks, active with `rkyv-validation` |
