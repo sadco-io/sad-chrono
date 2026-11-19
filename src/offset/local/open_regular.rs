@@ -144,6 +144,29 @@ pub(super) fn open_regular_nonblocking(path: &Path) -> io::Result<Option<File>> 
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    struct RemoveDirOnDrop(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl Drop for RemoveDirOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(unix)]
+    fn create_temp_dir(prefix: &str) -> (std::path::PathBuf, RemoveDirOnDrop) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique =
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}-{unique:x}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let guard = RemoveDirOnDrop(dir.clone());
+        (dir, guard)
+    }
+
     #[test]
     fn test_open_regular_nonblocking_basic() {
         let missing = std::env::temp_dir()
@@ -164,22 +187,9 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
         use std::os::unix::fs::OpenOptionsExt;
         use std::sync::mpsc;
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        use std::time::Duration;
 
-        struct RemoveDirOnDrop(std::path::PathBuf);
-        impl Drop for RemoveDirOnDrop {
-            fn drop(&mut self) {
-                let _ = fs::remove_dir_all(&self.0);
-            }
-        }
-
-        let unique =
-            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        let dir = std::env::temp_dir()
-            .join(format!("sad-chrono-open-regular-{}-{unique}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let _guard = RemoveDirOnDrop(dir.clone());
+        let (dir, _guard) = create_temp_dir("sad-chrono-open-regular");
 
         // Symlink to a regular file succeeds.
         let target = std::env::current_dir().unwrap().join("tests/android/tzdata");
@@ -227,5 +237,19 @@ mod tests {
         if O_NONBLOCK.is_some() {
             assert!(!run_open(true).unwrap());
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_nonblocking_socket_rejected_before_open() {
+        use std::os::unix::net::UnixListener;
+
+        let (dir, _guard) = create_temp_dir("sc-or");
+        let sock = dir.join("s");
+        let _listener = UnixListener::bind(&sock).unwrap();
+
+        // `open(2)` on a socket fails (ENXIO on Linux, EOPNOTSUPP on macOS), so `Ok(None)`
+        // proves the `fs::metadata` pre-check ran before opening.
+        assert!(open_regular_nonblocking(&sock).unwrap().is_none());
     }
 }

@@ -1505,6 +1505,9 @@ mod tests {
             (0, 1_000_000_000),
             (TimeDelta::MAX.secs, TimeDelta::MAX.nanos + 1),
             (TimeDelta::MIN.secs, TimeDelta::MIN.nanos - 1),
+            (TimeDelta::MAX.secs + 1, 0),
+            // what 0.4.47's MAX.checked_mul(2) produced
+            (2 * TimeDelta::MAX.secs + 1, 614_000_000),
         ];
 
         for (secs, nanos) in invalid_cases {

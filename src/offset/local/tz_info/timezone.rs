@@ -1137,27 +1137,37 @@ mod tests {
     }
 
     #[cfg(unix)]
+    struct RemoveDirOnDrop(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl Drop for RemoveDirOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(unix)]
+    fn create_temp_dir(prefix: &str) -> (std::path::PathBuf, RemoveDirOnDrop) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique =
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}-{unique:x}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let guard = RemoveDirOnDrop(dir.clone());
+        (dir, guard)
+    }
+
+    #[cfg(unix)]
     #[test]
     fn test_fifo_tz_file() {
         use std::os::unix::ffi::OsStrExt;
         use std::os::unix::fs::OpenOptionsExt;
         use std::sync::mpsc;
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        use std::time::Duration;
 
-        struct RemoveDirOnDrop(std::path::PathBuf);
-        impl Drop for RemoveDirOnDrop {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-
-        let unique =
-            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        let dir =
-            std::env::temp_dir().join(format!("sad_chrono_fifo_{}_{}", std::process::id(), unique));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let _guard = RemoveDirOnDrop(dir.clone());
+        let (dir, _guard) = create_temp_dir("sad_chrono_fifo");
 
         // Symlink to a regular file is accepted.
         let link = dir.join("tz-link");
@@ -1222,6 +1232,24 @@ mod tests {
         }
         assert!(matches!(
             res.expect("from_posix_tz on FIFO should return without blocking"),
+            Err(Error::InvalidTzFile("TZif path is not a regular file"))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_regular_tz_file_socket_rejected_before_open() {
+        use std::os::unix::net::UnixListener;
+
+        // Keep path short so `sun_path` stays within macOS's 104-byte limit.
+        let (dir, _guard) = create_temp_dir("sc-tz");
+        let sock = dir.join("s");
+        let _listener = UnixListener::bind(&sock).unwrap();
+
+        // `open(2)` on a Unix domain socket fails (ENXIO on Linux, EOPNOTSUPP on macOS), so
+        // `InvalidTzFile("TZif path is not a regular file")` proves the `is_file()` pre-check ran.
+        assert!(matches!(
+            super::open_regular_tz_file(&sock).map(drop),
             Err(Error::InvalidTzFile("TZif path is not a regular file"))
         ));
     }

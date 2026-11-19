@@ -679,6 +679,37 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn test_open_regular_file_socket_rejected_before_open() {
+        use std::os::unix::net::UnixListener;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        struct RemoveDirOnDrop(std::path::PathBuf);
+        impl Drop for RemoveDirOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        // Keep path short so `sun_path` stays within macOS's 104-byte limit.
+        let unique =
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("sc-td-{}-{unique:x}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let _guard = RemoveDirOnDrop(dir.clone());
+
+        let sock = dir.join("s");
+        let _listener = UnixListener::bind(&sock).unwrap();
+
+        // `open(2)` on a Unix domain socket fails (ENXIO on Linux, EOPNOTSUPP on macOS), so
+        // `ErrorKind::InvalidInput` proves the `is_file()` pre-check ran before opening.
+        let err = open_regular_file(sock.to_str().unwrap()).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.to_string(), "tzdata path is not a regular file");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_open_regular_file_sets_o_nonblock() {
         use std::os::unix::io::AsRawFd;
 
