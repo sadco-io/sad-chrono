@@ -94,8 +94,8 @@ with these differences from chrono `0.4.45` / `sad-chrono 0.4.46`:
   remains as a compatibility feature that also enables `rkyv/alloc` (needed for the high-level
   `rkyv::to_bytes`, `rkyv::from_bytes`, and `rkyv::access`; no-alloc users call
   `rkyv::api::low::{access, from_bytes}`, which run the same semantic checks).
-* **`From<DateTime<Tz>> for SystemTime` saturates** to the platform's nearest representable
-  `SystemTime` instead of panicking on out-of-range dates.
+* **`From<DateTime<Tz>> for SystemTime` saturates** to the limit of checked arithmetic from
+  `UNIX_EPOCH` in that direction instead of panicking on out-of-range dates.
 * **Malformed Android / OpenHarmony `tzdata` is rejected before allocating** when header or index
   lengths exceed the file size or 1 MiB caps, and TZif (`TZ`) / `tzdata` paths must be regular
   files (pre-checked with `is_file()`, and opened with `O_NONBLOCK` then checked on the open handle
@@ -128,7 +128,8 @@ These steps also apply from `0.4.47` (except step 4, because `0.4.47` already sa
      `rkyv::from_bytes::<T, rkyv::rancor::Error>(&b)`, and `rkyv::check_archived_root` ->
      `rkyv::access::<rkyv::Archived<T>, rkyv::rancor::Error>`), and re-archive stored data.
 4. Review callers of `From<DateTime<Tz>> for SystemTime` if any relied on out-of-range dates
-   panicking instead of saturating to the platform's nearest representable `SystemTime`.
+   panicking instead of saturating to the limit of checked arithmetic from `UNIX_EPOCH` in that
+   direction.
 5. Since `0.5.1` (and `0.4.48` on the `0.4` line), `TimeDelta * i32` panics and
    `TimeDelta::checked_mul` returns `None` instead of an out-of-range `TimeDelta` (users migrating
    from `0.4.48` already have this).
@@ -229,7 +230,7 @@ Fixes in `sad-chrono` that are not in any released version of chrono:
 | Android / OpenHarmony tzdata with oversized header or entry lengths (file-length bound 0.5.0, 0.4.47; 1 MiB caps 0.5.1, 0.4.47) | Up to 4 GiB allocation before failing (panic or abort on 32-bit targets) | Rejected against file length and 1 MiB caps before allocating |
 | Android / OpenHarmony tzdata path that is a FIFO or non-regular file (pre-check 0.5.1, 0.4.47; non-blocking open 0.5.1, 0.4.48) | Blocks in `File::open` | Checked with `is_file()` before and after opening; since 0.5.1 and 0.4.48, opened non-blocking (`O_NONBLOCK`) on every current Android and OpenHarmony target, so a FIFO swapped in after the pre-check cannot block the open (0.4.46 and 0.5.0 had no `is_file()` check; in 0.4.47 a concurrent swap could still block) |
 | `DateTime<Utc>::from(SystemTime)` outside `DateTime`'s range ([chrono#1802][audit]) | Panic | Saturates to `DateTime::MIN_UTC` / `MAX_UTC` |
-| `From<DateTime<Tz>> for SystemTime` outside platform range (0.5.0, 0.4.47) | Panic | Saturates to the nearest representable `SystemTime` |
+| `From<DateTime<Tz>> for SystemTime` outside platform range (0.5.0, 0.4.47) | Panic | Saturates to the limit of checked arithmetic from `UNIX_EPOCH` in that direction |
 | `NaiveDate::from_isoywd_opt` with `i32::MIN` / `i32::MAX` years | Overflow panic in builds with overflow checks (wraps in release builds) | Returns `None`, as documented |
 | `TimeDelta::checked_mul` / `TimeDelta * i32` exceeding `[TimeDelta::MIN, TimeDelta::MAX]` (0.5.1, 0.4.48) | Returns an out-of-range `TimeDelta` (later `num_milliseconds()` can panic or wrap) | `checked_mul` returns `None`; `*` panics on overflow |
 | Formatting offsets of `±23:59:30` or more to minute precision | Emits `+24:00`, which fails to parse back | Clamped to `+23:59` |

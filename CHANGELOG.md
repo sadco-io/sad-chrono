@@ -134,12 +134,14 @@ fixes only.
 * Android and OpenHarmony `tzdata`: header index-region and per-entry lengths
   are checked against the file length (`SeekFrom::End(0)`) and capped at 1 MiB
   before allocating, the reader seeks to `index_offset` before reading the
-  index, and the `tzdata` path must be a regular file (`is_file()` checked
-  before opening and again on the opened `File`, preventing hangs on FIFOs or
-  special files). Previously a malformed bundle could make the reader allocate
-  up to 4 GiB before failing on 64-bit targets, and panic (`capacity overflow`)
-  or abort on 32-bit. Malformed bundles are now rejected with `UnexpectedEof`
-  or `InvalidData`, and non-regular paths with `InvalidInput` (file-length
+  index, and the `tzdata` path must be a regular file (`is_file()` is checked
+  before opening and again on the opened handle; a concurrent path replacement
+  can still block the open in `0.4.47`). Previously a malformed bundle could
+  make the reader allocate up to 4 GiB before failing on 64-bit targets, and
+  panic (`capacity overflow`) or abort on 32-bit. An index region or selected
+  entry extending past the end of the file returns `UnexpectedEof`, a region
+  or selected entry exceeding its 1 MiB cap returns `InvalidData` when it fits
+  within the file, and non-regular paths return `InvalidInput` (file-length
   bounds backported from `0.5.0`; 1 MiB caps and regular-file guard new in
   `0.4.47`).
 * With `rkyv-validation`, `CheckBytes` validation now enforces value
@@ -147,11 +149,13 @@ fixes only.
   `TimeDelta`, `FixedOffset`, and `IsoWeek`, so untrusted archives containing
   out-of-range or inconsistent values are rejected during validation instead
   of panicking or returning wrong values on subsequent use.
-* `From<DateTime<Tz>> for SystemTime` now saturates to the platform's nearest
-  representable `SystemTime` using `checked_add` / `checked_sub` and binary
-  search, and normalizes leap seconds before inverting pre-epoch offsets.
-  Previously the conversion panicked on Windows below 1601 or above 30828,
-  and before 1970 on `wasm32-unknown-unknown` (backported from `0.5.0`).
+* `From<DateTime<Tz>> for SystemTime` now saturates at the limit of checked
+  arithmetic from `UNIX_EPOCH` in that direction using `checked_add` /
+  `checked_sub` and binary search, and normalizes leap seconds before
+  inverting pre-epoch offsets. Previously the conversion could panic outside
+  the Windows arithmetic range (on Rust 1.94 and later, January 1601 to
+  September 30828), and before 1970 on `wasm32-unknown-unknown` (backported
+  from `0.5.0`).
 * Document `# Panics` sections on `DateTime::format`, `NaiveDateTime::format`,
   `NaiveDate::format`, and `NaiveTime::format` covering all failure classes
   (invalid specifiers, parse-only specifiers such as `%#z`, and specifiers for
@@ -213,9 +217,9 @@ bounds Android/OpenHarmony `tzdata` allocations by file length, and makes
   and `rkyv-64` mapping to `rkyv`'s `pointer_width_*` features (and now enabling
   `rkyv/bytecheck` directly; `rkyv-validation` remains as a compatibility
   feature adding `rkyv/alloc`).
-* `From<DateTime<Tz>> for SystemTime` now saturates to the platform's nearest
-  representable `SystemTime` instead of panicking on out-of-range dates
-  (behavior change).
+* `From<DateTime<Tz>> for SystemTime` now saturates at the limit of checked
+  arithmetic from `UNIX_EPOCH` in that direction instead of panicking on
+  out-of-range dates (behavior change).
 
 ### Security and robustness
 
@@ -306,8 +310,8 @@ and chrono#1825.
   existing fallback for an invalid `TZ` (by the Sadco Security Team).
 * Require TZif files loaded via `TZ=<path>`, `TZ=:<path>`,
   `/etc/localtime`, or the `iana-time-zone` fallback to be regular files
-  (`is_file()`) and cap reads at 1 MiB, preventing memory exhaustion or
-  hangs on special files such as `/dev/zero` or FIFOs (by the Sadco
+  (`is_file()`) and cap reads at 1 MiB, bounding TZif reads and rejecting
+  paths already identified as non-regular before opening (by the Sadco
   Security Team).
 * TZif local time lookup: avoid `i64` overflow for transition times near
   `i64::MIN` / `i64::MAX` (chrono#1796, by nvxbug).
