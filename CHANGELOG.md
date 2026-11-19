@@ -13,9 +13,10 @@ from, as `chrono#NNNN`.
 ## sad-chrono 0.4.48
 
 Security release on the 0.4 maintenance line. It is API-compatible with
-0.4.47, and the MSRV (1.62.0) and rkyv 0.7 are unchanged. Behavior changes only
-for out-of-range inputs: `TimeDelta::checked_mul` now returns `None` (and
-`TimeDelta * i32` now panics) instead of producing an out-of-range `TimeDelta`.
+0.4.47, and the MSRV (1.62.0) and rkyv 0.7 are unchanged. When a product falls
+outside the `TimeDelta` range, `TimeDelta::checked_mul` now returns `None` and
+`TimeDelta * i32` now panics. On the Unix targets listed below, time zone
+loading also no longer waits for a FIFO writer.
 [`sad-chrono 0.5.1`](https://github.com/sadco-io/sad-chrono/releases/tag/v0.5.1)
 (MSRV 1.85, rkyv 0.8) is the recommended line; `0.4.x` receives security
 fixes only.
@@ -24,23 +25,24 @@ fixes only.
 
 * Open TZif (`TZ`, `/etc/localtime`, and system fallback paths) and
   Android/OpenHarmony `tzdata` files with `O_NONBLOCK` on the Unix targets
-  listed below so that the open cannot block, and reject non-regular files
-  through the existing `is_file()` check on the opened `File` handle (present
-  since `0.4.46` for `TZ` and `0.4.47` for `tzdata`; the pre-open `is_file()`
-  check is kept as a fast path). On those targets, this closes a race in which
-  a FIFO swapped in after the `is_file()` pre-check could hang `Local::now()`
-  or the `tzdata` loader indefinitely. `O_NONBLOCK` is enabled on Linux and
-  Android (including OpenHarmony) on `x86`, `x86_64`, `arm`, `aarch64`,
-  `riscv32`, `riscv64`, `s390x`, `powerpc`, `powerpc64`, and `loongarch64`
-  (every current Android and OpenHarmony target); on Apple platforms, FreeBSD,
-  DragonFly, NetBSD, and OpenBSD; and on Solaris and illumos. Other Unix targets
-  open without `O_NONBLOCK` but still verify `is_file()` both before and after
-  opening, so the race is not closed there. Backported from `0.5.1`.
+  listed below so that opening a FIFO for reading does not wait for a writer,
+  and reject non-regular files through the existing `is_file()` check on the
+  opened `File` handle (present since `0.4.46` for `TZ` and `0.4.47` for
+  `tzdata`; the pre-open `is_file()` check is kept as a fast path). On those
+  targets, this closes a race in which a FIFO swapped in after the `is_file()`
+  pre-check could hang `Local::now()` or the `tzdata` loader indefinitely.
+  `O_NONBLOCK` is enabled on Linux (including OpenHarmony) and Android on `x86`,
+  `x86_64`, `arm`, `aarch64`, `riscv32`, `riscv64`, `s390x`, `powerpc`,
+  `powerpc64`, and `loongarch64` (every current Android and OpenHarmony target);
+  on Apple platforms, FreeBSD, DragonFly, NetBSD, and OpenBSD; and on Solaris
+  and illumos. Other Unix targets open without `O_NONBLOCK` but still verify
+  `is_file()` both before and after opening, so the race is not closed there.
+  Backported from `0.5.1`.
 * Enforce `[TimeDelta::MIN, TimeDelta::MAX]` bounds in `TimeDelta::checked_mul`
   via `TimeDelta::new`, returning `None` instead of an out-of-range `TimeDelta`
-  (where `num_milliseconds()` subsequently panicked in debug builds or wrapped
-  in release builds). `TimeDelta * i32` now panics with its overflow message
-  instead of returning an out-of-range value. Document `# Panics` on
+  (on which `num_milliseconds()` could panic with overflow checks enabled or
+  wrap with them disabled). `TimeDelta * i32` now panics with its overflow
+  message instead of returning an out-of-range value. Document `# Panics` on
   `TimeDelta` arithmetic operators (`Add`, `Sub`, `AddAssign`, `SubAssign`,
   `Mul<i32>`, `Div<i32>`, and `Sum`) (backported from `0.5.1`).
 
