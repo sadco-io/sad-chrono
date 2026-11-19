@@ -2021,8 +2021,8 @@ impl<Tz: TimeZone> From<DateTime<Tz>> for SystemTime {
     ///
     /// If the `DateTime` is outside the representable range of `SystemTime` on the target
     /// platform (such as dates outside roughly 1601-01-01 to 30828-09-14 on Windows, or
-    /// dates before 1970-01-01 on `wasm32-unknown-unknown`), the result saturates to the
-    /// nearest representable `SystemTime` instead of panicking.
+    /// dates before 1970-01-01 on `wasm32-unknown-unknown`), the result saturates at the limit
+    /// of checked arithmetic from `UNIX_EPOCH` in that direction instead of panicking.
     fn from(dt: DateTime<Tz>) -> SystemTime {
         let mut sec = dt.timestamp();
         let mut nsec = dt.timestamp_subsec_nanos();

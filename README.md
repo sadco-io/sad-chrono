@@ -182,7 +182,7 @@ Fixes in `sad-chrono` that are not in any released version of chrono:
 | Android / OpenHarmony tzdata with oversized header or entry lengths (0.4.47) | Up to 4 GiB allocation before failing (panic or abort on 32-bit targets) | Rejected against file length and 1 MiB caps before allocating |
 | Android / OpenHarmony tzdata path that is a FIFO or non-regular file (pre-check 0.4.47; non-blocking open 0.4.48) | Blocks in `File::open` | Checked with `is_file()` before and after opening; since 0.4.48, opened non-blocking (`O_NONBLOCK`) on every current Android and OpenHarmony target, so a FIFO swapped in after the pre-check cannot block the open (before 0.4.48 it still could) |
 | `DateTime<Utc>::from(SystemTime)` outside `DateTime`'s range ([chrono#1802][audit]) | Panic | Saturates to `DateTime::MIN_UTC` / `MAX_UTC` |
-| `From<DateTime<Tz>> for SystemTime` outside platform range (0.4.47) | Panic | Saturates to the nearest representable `SystemTime` |
+| `From<DateTime<Tz>> for SystemTime` outside platform range (0.4.47) | Panic | Saturates at the limit of checked arithmetic from `UNIX_EPOCH` in that direction |
 | `NaiveDate::from_isoywd_opt` with `i32::MIN` / `i32::MAX` years | Overflow panic in builds with overflow checks (wraps in release builds) | Returns `None`, as documented |
 | `TimeDelta::checked_mul` / `TimeDelta * i32` exceeding `[TimeDelta::MIN, TimeDelta::MAX]` (0.4.48) | Returns an out-of-range `TimeDelta` (later `num_milliseconds()` panics or wraps) | `checked_mul` returns `None`; `*` panics on overflow |
 | Formatting offsets of `±23:59:30` or more to minute precision | Emits `+24:00`, which fails to parse back | Clamped to `+23:59` |
