@@ -55,13 +55,17 @@ chrono = { package = "sad-chrono", version = "0.5" }
 
 > **Check your dependencies first.** `sad_chrono::DateTime` and `chrono::DateTime` are distinct
 > types to the compiler. If a dependency takes or returns `chrono` types or implements its traits
-> (for example `chrono-tz`, or the `chrono` features of `sqlx`, `diesel`, `postgres-types`, or
-> `serde_with`), it will not accept your renamed `chrono::DateTime`, failing with errors such as
+> (for example upstream `chrono-tz`, or the `chrono` features of `sqlx`, `diesel`, `postgres-types`,
+> or `serde_with`), it will not accept your renamed `chrono::DateTime`, failing with errors such as
 > `` expected `DateTime<Utc>`, found a different `DateTime<Utc>` `` (with the note
 > `` `DateTime<Utc>` is defined in crate `sad_chrono` ``) or `` `Tz` implements similarly named
 > trait `chrono::offset::TimeZone` ``. Run `cargo tree -i chrono` to find such dependencies; if you
 > have any, replace `chrono` across the whole dependency graph instead (see
 > [Transitive dependencies](#transitive-dependencies)).
+>
+> For IANA timezones, [`sad-chrono-tz`](https://crates.io/crates/sad-chrono-tz) (`0.11` for
+> `sad-chrono 0.5`, `0.10` for `sad-chrono 0.4`) is a maintained drop-in replacement for `chrono-tz`
+> that works directly with `sad-chrono`.
 
 Or depend on it under its own name and import from `sad_chrono`:
 
@@ -260,11 +264,22 @@ Chrono aims to provide all functionality needed to do correct operations on date
   the current timezone of the OS.
 * Types and operations are implemented to be reasonably efficient.
 
-Timezone data is not shipped with sad-chrono by default to limit binary sizes. The companion crates
-[Chrono-TZ](https://crates.io/crates/chrono-tz) and [`tzfile`](https://crates.io/crates/tzfile)
-depend on upstream `chrono` and implement *its* `TimeZone` trait, so you cannot use their types with
-`sad_chrono` types directly. To use them with `sad-chrono`, replace `chrono` across the entire
-dependency graph (see [Transitive dependencies](#transitive-dependencies)).
+Timezone data is not shipped with sad-chrono by default to limit binary sizes. For IANA timezones,
+use the maintained companion crate [**sad-chrono-tz**](https://crates.io/crates/sad-chrono-tz)
+([GitHub](https://github.com/sadco-io/sad-chrono-tz)), which implements `sad_chrono`'s `TimeZone`
+trait directly (`0.11` for `sad-chrono 0.5`, `0.10` for `sad-chrono 0.4`):
+
+```toml
+[dependencies]
+chrono = { package = "sad-chrono", version = "0.5" }
+chrono-tz = { package = "sad-chrono-tz", version = "0.11" }
+```
+
+Upstream [`chrono-tz`](https://crates.io/crates/chrono-tz) and
+[`tzfile`](https://crates.io/crates/tzfile) depend on upstream `chrono` and implement *its*
+`TimeZone` trait, so you cannot use their types with `sad_chrono` directly; if another crate pulls
+them transitively, replace `chrono` across the entire dependency graph via `[patch.crates-io]` (see
+[Transitive dependencies](#transitive-dependencies)).
 
 ## Documentation
 

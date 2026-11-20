@@ -27,13 +27,17 @@
 //! * The [`Local`] timezone works with the current timezone of the OS.
 //! * Types and operations are implemented to be reasonably efficient.
 //!
-//! Timezone data is not shipped with sad-chrono by default to limit binary sizes. The companion
-//! crates [Chrono-TZ] and [`tzfile`] depend on upstream `chrono` and implement *its* `TimeZone`
-//! trait, so their types cannot be used with `sad_chrono` types directly unless `chrono` is
-//! replaced across the entire dependency graph (see the README's *Transitive dependencies* section).
+//! Timezone data is not shipped with sad-chrono by default to limit binary sizes. For IANA
+//! timezones, use the maintained companion crate [`sad-chrono-tz`], which implements
+//! `sad_chrono`'s `TimeZone` trait directly (`0.11` for `sad-chrono 0.5`, `0.10` for
+//! `sad-chrono 0.4`). Upstream [`chrono-tz`] and [`tzfile`] depend on upstream `chrono` and
+//! implement *its* `TimeZone` trait, so their types cannot be used with `sad_chrono` types
+//! directly unless `chrono` is replaced across the entire dependency graph (see the README's
+//! *Transitive dependencies* section).
 //!
 //! [proleptic Gregorian calendar]: https://en.wikipedia.org/wiki/Proleptic_Gregorian_calendar
-//! [Chrono-TZ]: https://crates.io/crates/chrono-tz
+//! [`sad-chrono-tz`]: https://crates.io/crates/sad-chrono-tz
+//! [`chrono-tz`]: https://crates.io/crates/chrono-tz
 //! [`tzfile`]: https://crates.io/crates/tzfile
 //!
 //! ### Features
