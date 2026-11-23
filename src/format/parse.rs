@@ -7,7 +7,7 @@
 use core::borrow::Borrow;
 use core::str;
 
-use super::scan;
+use super::scan::{self, OffsetComponents};
 use super::{BAD_FORMAT, INVALID, OUT_OF_RANGE, TOO_LONG, TOO_SHORT};
 use super::{Fixed, InternalFixed, InternalInternal, Item, Numeric, Pad, Parsed};
 use super::{ParseError, ParseResult};
@@ -244,7 +244,13 @@ pub(crate) fn parse_rfc3339(mut s: &str) -> ParseResult<DateTime<FixedOffset>> {
         .ok_or(OUT_OF_RANGE)?;
 
     // Max for the hours field is `23`, and for the minutes field `59`.
-    let offset = try_consume!(scan::timezone_offset(s, |s| scan::char(s, b':'), true, false, true));
+    let offset = try_consume!(scan::timezone_offset(
+        s,
+        |s| scan::char(s, b':'),
+        true,
+        OffsetComponents::Minutes,
+        true,
+    ));
     if !s.is_empty() {
         return Err(TOO_LONG);
     }
@@ -518,11 +524,16 @@ where
                     | &TimezoneOffsetDoubleColon
                     | &TimezoneOffsetTripleColon
                     | &TimezoneOffset => {
+                        let components = match spec {
+                            TimezoneOffsetDoubleColon => OffsetComponents::MinutesOptionalSeconds,
+                            TimezoneOffsetTripleColon => OffsetComponents::OptionalMinutes,
+                            _ => OffsetComponents::Minutes,
+                        };
                         let offset = try_consume!(scan::timezone_offset(
                             s.trim_start(),
                             scan::colon_or_space,
                             false,
-                            false,
+                            components,
                             true,
                         ));
                         parsed.set_offset(i64::from(offset))?;
@@ -533,7 +544,7 @@ where
                             s.trim_start(),
                             scan::colon_or_space,
                             true,
-                            false,
+                            OffsetComponents::Minutes,
                             true,
                         ));
                         parsed.set_offset(i64::from(offset))?;
@@ -545,7 +556,7 @@ where
                             s.trim_start(),
                             scan::colon_or_space,
                             true,
-                            true,
+                            OffsetComponents::MinutesUnlessEnd,
                             true,
                         ));
                         parsed.set_offset(i64::from(offset))?;
@@ -639,7 +650,7 @@ fn parse_rfc3339_relaxed<'a>(parsed: &mut Parsed, mut s: &'a str) -> ParseResult
     let (s, offset) = if s.len() >= 3 && "UTC".as_bytes().eq_ignore_ascii_case(&s.as_bytes()[..3]) {
         (&s[3..], 0)
     } else {
-        scan::timezone_offset(s, scan::colon_or_space, true, false, true)?
+        scan::timezone_offset(s, scan::colon_or_space, true, OffsetComponents::Minutes, true)?
     };
     parsed.set_offset(i64::from(offset))?;
     Ok((s, ()))
@@ -1094,6 +1105,7 @@ mod tests {
         use crate::format::Fixed::*;
         use crate::format::InternalInternal::*;
         use crate::format::Item::Literal;
+        use crate::format::Numeric::Second;
 
         // TimezoneOffset
         check("1", &[fixed(TimezoneOffset)], Err(INVALID));
@@ -1298,10 +1310,39 @@ mod tests {
         check(" :Z", &[fixed(TimezoneOffsetColon)], Err(INVALID));
         check(" Z", &[fixed(TimezoneOffsetColon)], Err(INVALID));
         check(" z", &[fixed(TimezoneOffsetColon)], Err(INVALID));
-        // testing `TimezoneOffsetColon` also tests same path as `TimezoneOffsetDoubleColon`
-        // and `TimezoneOffsetTripleColon` for function `parse_internal`.
-        // No need for separate tests for `TimezoneOffsetDoubleColon` and
-        // `TimezoneOffsetTripleColon`.
+
+        // TimezoneOffsetDoubleColon
+        check("+12:34:56", &[fixed(TimezoneOffsetDoubleColon)], parsed!(offset: 45_296));
+        check("-12:34:56", &[fixed(TimezoneOffsetDoubleColon)], parsed!(offset: -45_296));
+        check("-00:00:01", &[fixed(TimezoneOffsetDoubleColon)], parsed!(offset: -1));
+        check("+12:34", &[fixed(TimezoneOffsetDoubleColon)], parsed!(offset: 45_240));
+        check("+12:34:", &[fixed(TimezoneOffsetDoubleColon)], Err(TOO_LONG));
+        check("+12:34:5", &[fixed(TimezoneOffsetDoubleColon)], Err(TOO_LONG));
+        check("+12:34 56", &[fixed(TimezoneOffsetDoubleColon)], Err(TOO_LONG));
+        check(
+            "+12:34:60",
+            &[fixed(TimezoneOffsetDoubleColon), Literal(":"), num(Second)],
+            parsed!(offset: 45_240, second: 60),
+        );
+        check(
+            "+12:34:56:",
+            &[fixed(TimezoneOffsetDoubleColon), Literal(":")],
+            parsed!(offset: 45_296),
+        );
+
+        // TimezoneOffsetTripleColon
+        check("+12", &[fixed(TimezoneOffsetTripleColon)], parsed!(offset: 43_200));
+        check("-12", &[fixed(TimezoneOffsetTripleColon)], parsed!(offset: -43_200));
+        check("+12:34", &[fixed(TimezoneOffsetTripleColon)], parsed!(offset: 45_240));
+        check("+12 34", &[fixed(TimezoneOffsetTripleColon)], parsed!(offset: 45_240));
+        check("+12:60", &[fixed(TimezoneOffsetTripleColon)], Err(OUT_OF_RANGE));
+        check("+12 ", &[fixed(TimezoneOffsetTripleColon)], Err(TOO_LONG));
+        check("+12]", &[fixed(TimezoneOffsetTripleColon), Literal("]")], parsed!(offset: 43_200));
+        check(
+            "+12:345",
+            &[fixed(TimezoneOffsetTripleColon), num(Second)],
+            parsed!(offset: 45_240, second: 5),
+        );
 
         // TimezoneOffsetZ
         check("1", &[fixed(TimezoneOffsetZ)], Err(INVALID));
