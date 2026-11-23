@@ -25,7 +25,7 @@ ships those fixes, and takes on new ones. It is maintained by the Sadco Security
 
 ## Which version?
 
-* **0.5.x** (recommended): MSRV 1.85, `rkyv` 0.8, and every fix as of `0.5.1`.
+* **0.5.x** (recommended): MSRV 1.85, `rkyv` 0.8, and every fix as of `0.5.2`.
 * **0.4.x**: maintained on the `0.4.x` branch for security fixes only — MSRV 1.62, `rkyv` 0.7, a
   strict drop-in for `chrono 0.4.x` builds that cannot move (also used by the transitive-dependency
   `[patch]` route below).
