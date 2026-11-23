@@ -1156,6 +1156,32 @@ fn test_parse_from_str() {
 }
 
 #[test]
+#[cfg(feature = "alloc")]
+fn test_offset_specifiers_parse_their_own_output() {
+    // Expected text comes from the documented `%::z` (`+09:30:00`) and `%:::z` (`+09`) outputs;
+    // expected offsets are the source offset at the precision that text represents.
+    let cases = [
+        ("%Y-%m-%dT%H:%M:%S%::z", 3723, "2024-05-06T07:08:09+01:02:03", 3723),
+        ("%Y-%m-%dT%H:%M:%S%::z", -3723, "2024-05-06T07:08:09-01:02:03", -3723),
+        ("%Y-%m-%dT%H:%M:%S%::z", -30, "2024-05-06T07:08:09-00:00:30", -30),
+        ("%::z %Y-%m-%d %H:%M:%S", -3723, "-01:02:03 2024-05-06 07:08:09", -3723),
+        ("%Y-%m-%d %H:%M:%S %:::z", 3600, "2024-05-06 07:08:09 +01", 3600),
+        ("%Y-%m-%d %H:%M:%S %:::z", -19800, "2024-05-06 07:08:09 -05", -18000),
+        ("%:::z|%Y-%m-%d %H:%M:%S", -3600, "-01|2024-05-06 07:08:09", -3600),
+    ];
+    for (fmt, offset, text, parsed_offset) in cases {
+        let dt = ymdhms(&FixedOffset::east_opt(offset).unwrap(), 2024, 5, 6, 7, 8, 9);
+        assert_eq!(dt.format(fmt).to_string(), text, "format {fmt:?}, offset {offset}");
+        let expected = ymdhms(&FixedOffset::east_opt(parsed_offset).unwrap(), 2024, 5, 6, 7, 8, 9);
+        assert_eq!(
+            DateTime::parse_from_str(text, fmt),
+            Ok(expected),
+            "parse {text:?} with {fmt:?}"
+        );
+    }
+}
+
+#[test]
 fn test_datetime_parse_from_str() {
     let dt = ymdhms(&FixedOffset::east_opt(-9 * 60 * 60).unwrap(), 2013, 8, 9, 23, 54, 35);
     let parse = DateTime::parse_from_str;
@@ -1221,8 +1247,7 @@ fn test_datetime_parse_from_str() {
     assert_eq!(parse("Aug 09 2013 23:54:35 -0900", "%b %d %Y %H:%M:%S %::z"), Ok(dt));
     assert_eq!(parse("Aug 09 2013 23:54:35 -09:00", "%b %d %Y %H:%M:%S %::z"), Ok(dt));
     assert_eq!(parse("Aug 09 2013 23:54:35 -09 : 00", "%b %d %Y %H:%M:%S %::z"), Ok(dt));
-    // mismatching colon expectations
-    assert!(parse("Aug 09 2013 23:54:35 -09:00:00", "%b %d %Y %H:%M:%S %::z").is_err());
+    assert_eq!(parse("Aug 09 2013 23:54:35 -09:00:00", "%b %d %Y %H:%M:%S %::z"), Ok(dt));
     assert_eq!(parse("Aug 09 2013 23:54:35 -09::00", "%b %d %Y %H:%M:%S %::z"), Ok(dt));
     assert_eq!(parse("Aug 09 2013 23:54:35 -09::00", "%b %d %Y %H:%M:%S %:z"), Ok(dt));
     // wrong timezone data
@@ -1235,14 +1260,11 @@ fn test_datetime_parse_from_str() {
     assert_eq!(parse("Aug 09 2013 23:54:35 :-0900:0", "%b %d %Y %H:%M:%S :%::z:0"), Ok(dt));
     // mismatching colons and spaces
     assert!(parse("Aug 09 2013 23:54:35 :-0900: ", "%b %d %Y %H:%M:%S :%::z::").is_err());
-    // mismatching colons expectations
-    assert!(parse("Aug 09 2013 23:54:35 -09:00:00", "%b %d %Y %H:%M:%S %::z").is_err());
     assert_eq!(parse("Aug 09 2013 -0900: 23:54:35", "%b %d %Y %::z: %H:%M:%S"), Ok(dt));
     assert_eq!(parse("Aug 09 2013 :-0900:0 23:54:35", "%b %d %Y :%::z:0 %H:%M:%S"), Ok(dt));
     // mismatching colons expectations mid-string
     assert!(parse("Aug 09 2013 :-0900: 23:54:35", "%b %d %Y :%::z  %H:%M:%S").is_err());
-    // mismatching colons expectations, before end
-    assert!(parse("Aug 09 2013 23:54:35 -09:00:00 ", "%b %d %Y %H:%M:%S %::z ").is_err());
+    assert_eq!(parse("Aug 09 2013 23:54:35 -09:00:00 ", "%b %d %Y %H:%M:%S %::z "), Ok(dt));
 
     //
     // %:::z
@@ -1250,8 +1272,7 @@ fn test_datetime_parse_from_str() {
     assert_eq!(parse("Aug 09 2013 23:54:35 -09:00", "%b %d %Y %H:%M:%S %:::z"), Ok(dt));
     assert_eq!(parse("Aug 09 2013 23:54:35 -0900", "%b %d %Y %H:%M:%S %:::z"), Ok(dt));
     assert_eq!(parse("Aug 09 2013 23:54:35 -0900  ", "%b %d %Y %H:%M:%S %:::z  "), Ok(dt));
-    // wrong timezone data
-    assert!(parse("Aug 09 2013 23:54:35 -09", "%b %d %Y %H:%M:%S %:::z").is_err());
+    assert_eq!(parse("Aug 09 2013 23:54:35 -09", "%b %d %Y %H:%M:%S %:::z"), Ok(dt));
 
     //
     // %::::z

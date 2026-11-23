@@ -186,13 +186,25 @@ pub(crate) fn colon_or_space(s: &str) -> ParseResult<&str> {
     Ok(s.trim_start_matches(|c: char| c == ':' || c.is_whitespace()))
 }
 
+/// The offset components after the hours that [`timezone_offset`] reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OffsetComponents {
+    /// Minutes.
+    Minutes,
+    /// Minutes, which may be missing at the end of the input.
+    MinutesUnlessEnd,
+    /// Minutes, then seconds when `:` and two digits from `00` to `59` follow.
+    MinutesOptionalSeconds,
+    /// Minutes when a digit follows the separator.
+    OptionalMinutes,
+}
+
 /// Parse a timezone from `s` and return the offset in seconds.
 ///
 /// The `consume_colon` function is used to parse a mandatory or optional `:`
 /// separator between hours offset and minutes offset.
 ///
-/// The `allow_missing_minutes` flag allows the timezone minutes offset to be
-/// missing from `s`.
+/// The `components` select which offset components after the hours are read.
 ///
 /// The `allow_tz_minus_sign` flag allows the timezone offset negative character
 /// to also be `−` MINUS SIGN (U+2212) in addition to the typical
@@ -204,7 +216,7 @@ pub(crate) fn timezone_offset<F>(
     mut s: &str,
     mut consume_colon: F,
     allow_zulu: bool,
-    allow_missing_minutes: bool,
+    components: OffsetComponents,
     allow_tz_minus_sign: bool,
 ) -> ParseResult<(&str, i32)>
 where
@@ -252,6 +264,13 @@ where
         _ => return Err(INVALID),
     };
     s = &s[2..];
+    let apply_sign = |offset: i32| if negative { -offset } else { offset };
+
+    if components == OffsetComponents::OptionalMinutes
+        && !matches!(consume_colon(s)?.as_bytes().first(), Some(b'0'..=b'9'))
+    {
+        return Ok((s, apply_sign(hours * 3600)));
+    }
 
     // colons (and possibly other separators)
     s = consume_colon(s)?;
@@ -264,7 +283,7 @@ where
             (b'6'..=b'9', b'0'..=b'9') => return Err(OUT_OF_RANGE),
             _ => return Err(INVALID),
         }
-    } else if allow_missing_minutes {
+    } else if components == OffsetComponents::MinutesUnlessEnd {
         0
     } else {
         return Err(TOO_SHORT);
@@ -275,8 +294,14 @@ where
         _ => return Err(TOO_SHORT),
     };
 
-    let seconds = hours * 3600 + minutes * 60;
-    Ok((s, if negative { -seconds } else { seconds }))
+    let mut seconds = hours * 3600 + minutes * 60;
+    if components == OffsetComponents::MinutesOptionalSeconds {
+        if let &[b':', s1 @ b'0'..=b'5', s2 @ b'0'..=b'9', ..] = s.as_bytes() {
+            seconds += i32::from((s1 - b'0') * 10 + (s2 - b'0'));
+            s = &s[3..];
+        }
+    }
+    Ok((s, apply_sign(seconds)))
 }
 
 /// Same as `timezone_offset` but also allows for RFC 2822 legacy timezones.
@@ -316,7 +341,7 @@ pub(super) fn timezone_offset_2822(s: &str) -> ParseResult<(&str, i32)> {
         }
         Err(INVALID)
     } else {
-        timezone_offset(s, |s| Ok(s), false, false, false)
+        timezone_offset(s, |s| Ok(s), false, OffsetComponents::Minutes, false)
     }
 }
 
