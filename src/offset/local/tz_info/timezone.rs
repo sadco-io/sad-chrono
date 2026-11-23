@@ -3,7 +3,7 @@
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::{cmp::Ordering, fmt, str};
+use std::{fmt, str};
 
 use super::rule::{AlternateTime, TransitionRule};
 use super::{DAYS_PER_WEEK, Error, SECONDS_PER_DAY, parser};
@@ -249,80 +249,34 @@ impl<'a> TimeZoneRef<'a> {
         // };
         let local_leap_time = local_time.and_utc().timestamp();
 
-        // if we have at least one transition,
-        // we must check _all_ of them, in case of any Overlapping (MappedLocalTime::Ambiguous) or Skipping (MappedLocalTime::None) transitions
-        let offset_after_last = if !self.transitions.is_empty() {
-            let mut prev = self.local_time_types[0];
-
-            for transition in self.transitions {
-                let after_ltt = self.local_time_types[transition.local_time_type_index];
-
-                // the end and start here refers to where the time starts prior to the transition
-                // and where it ends up after. not the temporal relationship.
-                let transition_end =
-                    transition.unix_leap_time.saturating_add(i64::from(after_ltt.ut_offset));
-                let transition_start =
-                    transition.unix_leap_time.saturating_add(i64::from(prev.ut_offset));
-
-                match transition_start.cmp(&transition_end) {
-                    Ordering::Greater => {
-                        // backwards transition, eg from DST to regular
-                        // this means a given local time could have one of two possible offsets
-                        if local_leap_time < transition_end {
-                            return Ok(crate::MappedLocalTime::Single(prev));
-                        } else if local_leap_time >= transition_end
-                            && local_leap_time <= transition_start
-                        {
-                            if prev.ut_offset < after_ltt.ut_offset {
-                                return Ok(crate::MappedLocalTime::Ambiguous(prev, after_ltt));
-                            } else {
-                                return Ok(crate::MappedLocalTime::Ambiguous(after_ltt, prev));
-                            }
-                        }
-                    }
-                    Ordering::Equal => {
-                        // should this ever happen? presumably we have to handle it anyway.
-                        if local_leap_time < transition_start {
-                            return Ok(crate::MappedLocalTime::Single(prev));
-                        } else if local_leap_time == transition_end {
-                            if prev.ut_offset < after_ltt.ut_offset {
-                                return Ok(crate::MappedLocalTime::Ambiguous(prev, after_ltt));
-                            } else {
-                                return Ok(crate::MappedLocalTime::Ambiguous(after_ltt, prev));
-                            }
-                        }
-                    }
-                    Ordering::Less => {
-                        // forwards transition, eg from regular to DST
-                        // this means that times that are skipped are invalid local times
-                        if local_leap_time <= transition_start {
-                            return Ok(crate::MappedLocalTime::Single(prev));
-                        } else if local_leap_time < transition_end {
-                            return Ok(crate::MappedLocalTime::None);
-                        } else if local_leap_time == transition_end {
-                            return Ok(crate::MappedLocalTime::Single(after_ltt));
-                        }
-                    }
-                }
-
-                // try the next transition, we are fully after this one
-                prev = after_ltt;
-            }
-
-            prev
-        } else {
-            self.local_time_types[0]
-        };
-
-        if let Some(extra_rule) = self.extra_rule {
-            match extra_rule.find_local_time_type_from_local(local_time) {
-                Ok(local_time_type) => Ok(local_time_type),
-                Err(Error::OutOfRange(error)) => Err(Error::FindLocalTimeType(error)),
-                err => err,
-            }
-        } else {
-            Ok(crate::MappedLocalTime::Single(offset_after_last))
+        let mut candidates = crate::MappedLocalTime::None;
+        let mut period_start = None;
+        let mut local_time_type = self.local_time_types[0];
+        for transition in self.transitions {
+            add_local_time_candidate(
+                &mut candidates,
+                local_leap_time,
+                local_time_type,
+                period_start,
+                Some(transition.unix_leap_time),
+            );
+            period_start = Some(transition.unix_leap_time);
+            local_time_type = self.local_time_types[transition.local_time_type_index];
         }
+
+        match self.extra_rule {
+            Some(extra_rule) => {
+                extra_rule.add_local_time_candidates(&mut candidates, local_time, period_start)
+            }
+            None => add_local_time_candidate(
+                &mut candidates,
+                local_leap_time,
+                local_time_type,
+                period_start,
+                None,
+            ),
+        }
+        Ok(candidates)
     }
 
     /// Check time zone inputs
@@ -486,6 +440,32 @@ impl Transition {
     const fn unix_leap_time(&self) -> i64 {
         self.unix_leap_time
     }
+}
+
+/// Adds `local_time_type` to `candidates` when the local wall time `local`, read with its
+/// offset, is a UTC instant in `[start, end)`, the period in which that type applies. `None`
+/// leaves that side of the period unbounded.
+///
+/// Starting from `MappedLocalTime::None` and called once per period in increasing order, this
+/// keeps the earliest and the latest instant that `local` denotes.
+pub(super) fn add_local_time_candidate(
+    candidates: &mut crate::MappedLocalTime<LocalTimeType>,
+    local: i64,
+    local_time_type: LocalTimeType,
+    start: Option<i64>,
+    end: Option<i64>,
+) {
+    let instant = local - i64::from(local_time_type.ut_offset);
+    if start.is_some_and(|start| instant < start) || end.is_some_and(|end| instant >= end) {
+        return;
+    }
+    *candidates = match *candidates {
+        crate::MappedLocalTime::None => crate::MappedLocalTime::Single(local_time_type),
+        crate::MappedLocalTime::Single(earliest)
+        | crate::MappedLocalTime::Ambiguous(earliest, _) => {
+            crate::MappedLocalTime::Ambiguous(earliest, local_time_type)
+        }
+    };
 }
 
 /// Leap second of a TZif file

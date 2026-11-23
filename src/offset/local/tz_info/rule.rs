@@ -1,5 +1,5 @@
 use super::parser::Cursor;
-use super::timezone::{LocalTimeType, SECONDS_PER_WEEK};
+use super::timezone::{LocalTimeType, SECONDS_PER_WEEK, add_local_time_candidate};
 use super::{
     CUMUL_DAY_IN_MONTHS_NORMAL_YEAR, DAY_IN_MONTHS_NORMAL_YEAR, DAYS_PER_WEEK, Error,
     SECONDS_PER_DAY,
@@ -78,17 +78,24 @@ impl TransitionRule {
         }
     }
 
-    /// Find the local time type associated to the transition rule at the specified Unix time in seconds
-    pub(super) fn find_local_time_type_from_local(
+    /// Adds to `candidates` the local time types under which `local_time` maps to a UTC instant
+    /// at or after `period_start`, in increasing order of those instants.
+    pub(super) fn add_local_time_candidates(
         &self,
+        candidates: &mut crate::MappedLocalTime<LocalTimeType>,
         local_time: NaiveDateTime,
-    ) -> Result<crate::MappedLocalTime<LocalTimeType>, Error> {
+        period_start: Option<i64>,
+    ) {
         match self {
-            TransitionRule::Fixed(local_time_type) => {
-                Ok(crate::MappedLocalTime::Single(*local_time_type))
-            }
+            TransitionRule::Fixed(local_time_type) => add_local_time_candidate(
+                candidates,
+                local_time.and_utc().timestamp(),
+                *local_time_type,
+                period_start,
+                None,
+            ),
             TransitionRule::Alternate(alternate_time) => {
-                alternate_time.find_local_time_type_from_local(local_time)
+                alternate_time.add_local_time_candidates(candidates, local_time, period_start)
             }
         }
     }
@@ -222,120 +229,45 @@ impl AlternateTime {
         if is_dst { Ok(&self.dst) } else { Ok(&self.std) }
     }
 
-    fn find_local_time_type_from_local(
+    fn add_local_time_candidates(
         &self,
+        candidates: &mut crate::MappedLocalTime<LocalTimeType>,
         local_time: NaiveDateTime,
-    ) -> Result<crate::MappedLocalTime<LocalTimeType>, Error> {
+        period_start: Option<i64>,
+    ) {
         // Year must be between i32::MIN + 2 and i32::MAX - 2, year in NaiveDate is always smaller.
         let current_year = local_time.year();
         let local_time = local_time.and_utc().timestamp();
 
-        let dst_start_transition_start =
-            self.dst_start.unix_time(current_year, 0) + i64::from(self.dst_start_time);
-        let dst_start_transition_end = self.dst_start.unix_time(current_year, 0)
-            + i64::from(self.dst_start_time)
-            + i64::from(self.dst.ut_offset)
-            - i64::from(self.std.ut_offset);
+        let dst_start = self.dst_start.unix_time(
+            current_year,
+            i64::from(self.dst_start_time) - i64::from(self.std.ut_offset),
+        );
+        let dst_end = self
+            .dst_end
+            .unix_time(current_year, i64::from(self.dst_end_time) - i64::from(self.dst.ut_offset));
+        let periods = if dst_start <= dst_end {
+            [
+                (None, Some(dst_start), self.std),
+                (Some(dst_start), Some(dst_end), self.dst),
+                (Some(dst_end), None, self.std),
+            ]
+        } else {
+            [
+                (None, Some(dst_end), self.dst),
+                (Some(dst_end), Some(dst_start), self.std),
+                (Some(dst_start), None, self.dst),
+            ]
+        };
 
-        let dst_end_transition_start =
-            self.dst_end.unix_time(current_year, 0) + i64::from(self.dst_end_time);
-        let dst_end_transition_end = self.dst_end.unix_time(current_year, 0)
-            + i64::from(self.dst_end_time)
-            + i64::from(self.std.ut_offset)
-            - i64::from(self.dst.ut_offset);
-
-        match self.std.ut_offset.cmp(&self.dst.ut_offset) {
-            Ordering::Equal => Ok(crate::MappedLocalTime::Single(self.std)),
-            Ordering::Less => {
-                if self.dst_start.transition_date(current_year).0
-                    < self.dst_end.transition_date(current_year).0
-                {
-                    // northern hemisphere
-                    // For the DST END transition, the `start` happens at a later timestamp than the `end`.
-                    if local_time <= dst_start_transition_start {
-                        Ok(crate::MappedLocalTime::Single(self.std))
-                    } else if local_time > dst_start_transition_start
-                        && local_time < dst_start_transition_end
-                    {
-                        Ok(crate::MappedLocalTime::None)
-                    } else if local_time >= dst_start_transition_end
-                        && local_time < dst_end_transition_end
-                    {
-                        Ok(crate::MappedLocalTime::Single(self.dst))
-                    } else if local_time >= dst_end_transition_end
-                        && local_time <= dst_end_transition_start
-                    {
-                        Ok(crate::MappedLocalTime::Ambiguous(self.std, self.dst))
-                    } else {
-                        Ok(crate::MappedLocalTime::Single(self.std))
-                    }
-                } else {
-                    // southern hemisphere regular DST
-                    // For the DST END transition, the `start` happens at a later timestamp than the `end`.
-                    if local_time < dst_end_transition_end {
-                        Ok(crate::MappedLocalTime::Single(self.dst))
-                    } else if local_time >= dst_end_transition_end
-                        && local_time <= dst_end_transition_start
-                    {
-                        Ok(crate::MappedLocalTime::Ambiguous(self.std, self.dst))
-                    } else if local_time > dst_end_transition_end
-                        && local_time < dst_start_transition_start
-                    {
-                        Ok(crate::MappedLocalTime::Single(self.std))
-                    } else if local_time >= dst_start_transition_start
-                        && local_time < dst_start_transition_end
-                    {
-                        Ok(crate::MappedLocalTime::None)
-                    } else {
-                        Ok(crate::MappedLocalTime::Single(self.dst))
-                    }
-                }
-            }
-            Ordering::Greater => {
-                if self.dst_start.transition_date(current_year).0
-                    < self.dst_end.transition_date(current_year).0
-                {
-                    // southern hemisphere reverse DST
-                    // For the DST END transition, the `start` happens at a later timestamp than the `end`.
-                    if local_time < dst_start_transition_end {
-                        Ok(crate::MappedLocalTime::Single(self.std))
-                    } else if local_time >= dst_start_transition_end
-                        && local_time <= dst_start_transition_start
-                    {
-                        Ok(crate::MappedLocalTime::Ambiguous(self.dst, self.std))
-                    } else if local_time > dst_start_transition_start
-                        && local_time < dst_end_transition_start
-                    {
-                        Ok(crate::MappedLocalTime::Single(self.dst))
-                    } else if local_time >= dst_end_transition_start
-                        && local_time < dst_end_transition_end
-                    {
-                        Ok(crate::MappedLocalTime::None)
-                    } else {
-                        Ok(crate::MappedLocalTime::Single(self.std))
-                    }
-                } else {
-                    // northern hemisphere reverse DST
-                    // For the DST END transition, the `start` happens at a later timestamp than the `end`.
-                    if local_time <= dst_end_transition_start {
-                        Ok(crate::MappedLocalTime::Single(self.dst))
-                    } else if local_time > dst_end_transition_start
-                        && local_time < dst_end_transition_end
-                    {
-                        Ok(crate::MappedLocalTime::None)
-                    } else if local_time >= dst_end_transition_end
-                        && local_time < dst_start_transition_end
-                    {
-                        Ok(crate::MappedLocalTime::Single(self.std))
-                    } else if local_time >= dst_start_transition_end
-                        && local_time <= dst_start_transition_start
-                    {
-                        Ok(crate::MappedLocalTime::Ambiguous(self.dst, self.std))
-                    } else {
-                        Ok(crate::MappedLocalTime::Single(self.dst))
-                    }
-                }
-            }
+        for (start, end, local_time_type) in periods {
+            add_local_time_candidate(
+                candidates,
+                local_time,
+                local_time_type,
+                start.max(period_start),
+                end,
+            );
         }
     }
 }
