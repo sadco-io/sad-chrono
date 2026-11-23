@@ -12,6 +12,16 @@ from, as `chrono#NNNN`.
 
 ## Unreleased
 
+### Fixes
+
+* Parse the offsets that `%::z` and `%:::z` format. `%::z` now reads an
+  optional `:00` through `:59` after the minutes as offset seconds, so
+  `+01:02:03` parses as that offset instead of failing with `TooLong`.
+  `%:::z` now accepts an hours-only offset such as `-05` when no digit follows
+  the hours and their separator. Other inputs that `%::z` and `%:::z` accepted
+  before parse as before. `%z`, `%:z`, `%#z`, and RFC 3339 parsing are
+  unchanged.
+
 ### CI
 
 * Add `x86_64-unknown-netbsd`, `x86_64-pc-solaris`, and `s390x-unknown-linux-gnu`

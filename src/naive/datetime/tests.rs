@@ -143,6 +143,12 @@ fn test_datetime_from_str() {
             "`{s}` is parsed into `{d:?}`, but reparsed result \
              `{d_:?}` does not match"
         );
+        let displayed = d.to_string();
+        assert_eq!(
+            displayed.parse::<NaiveDateTime>(),
+            Ok(d),
+            "`{s}` is parsed into `{d:?}`, but its `Display` output `{displayed}` does not parse back"
+        );
     }
 
     // some invalid cases
@@ -166,7 +172,7 @@ fn test_datetime_from_str() {
         "2012-12-12T12:12:12 GMT",       // unexpected timezone / trailing literal
         "2012-123-12T12:12:12",          // invalid month
         "2012-12-12t12:12:12",           // bad divider 't'
-        "2012-12-12 12:12:12",           // missing divider 'T'
+        "2012-12-1212:12:12",            // missing divider
         "2012-12-12T12:12:12Z",          // trailing char 'Z'
         "+ 82701-123-12T12:12:12",       // strange year, invalid month
         "+802701-123-12T12:12:12",       // out-of-bound year, invalid month
