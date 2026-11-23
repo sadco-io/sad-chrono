@@ -11,7 +11,6 @@ use sad_chrono::{Local, Offset};
 
 const CHILD_ENV: &str = "SAD_CHRONO_LOCAL_TZ_FILE_CACHE_CHILD";
 const OFFSET_PREFIX: &str = "local-offset:";
-// Longer than the one-second window in which the Unix `Local` cache skips revalidation.
 const REVALIDATION_WAIT: Duration = Duration::from_millis(1500);
 
 const PLUS_THREE: i32 = 3 * 3600;
@@ -83,8 +82,8 @@ fn check_offset_follows_source(
         return;
     }
 
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(test_name);
-    let _ = fs::remove_dir_all(&dir);
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("{test_name}-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let tz = create_source(&dir);
 
@@ -107,6 +106,7 @@ fn check_offset_follows_source(
     writeln!(child.stdin.take().unwrap()).unwrap();
     let after = offsets.next().expect("child should report the offset after replacement");
     assert!(child.wait().unwrap().success());
+    fs::remove_dir_all(&dir).unwrap();
 
     assert_eq!(before, PLUS_THREE, "TZ={tz} before replacement");
     assert_eq!(after, MINUS_FIVE, "TZ={tz} after replacement");
