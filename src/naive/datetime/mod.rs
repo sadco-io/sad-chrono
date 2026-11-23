@@ -2143,7 +2143,8 @@ impl fmt::Display for NaiveDateTime {
 /// [`%Y-%m-%dT%H:%M:%S%.f`](crate::format::strftime), as in `Debug`.
 ///
 /// A single space in place of the `T` is also accepted, so the `Display` output,
-/// [`%Y-%m-%d %H:%M:%S%.f`](crate::format::strftime), parses back to the same value.
+/// [`%Y-%m-%d %H:%M:%S%.f`](crate::format::strftime), parses back to the same value,
+/// except for leap seconds not on the minute boundary, which `Display` cannot represent.
 ///
 /// # Example
 ///
