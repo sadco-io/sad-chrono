@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::os::unix::fs::MetadataExt;
+use std::path::Path;
 use std::{cell::RefCell, collections::hash_map, env, fs, hash::Hasher, time::SystemTime};
 
 use super::tz_info::TimeZone;
@@ -34,9 +36,35 @@ thread_local! {
     static TZ_INFO: RefCell<Option<Cache>> = Default::default();
 }
 
+#[derive(PartialEq)]
 enum Source {
     LocalTime { mtime: SystemTime },
-    Environment { hash: u64 },
+    Environment { hash: u64, tz_file: Option<FileIdentity> },
+}
+
+#[derive(PartialEq)]
+struct FileIdentity {
+    dev: u64,
+    ino: u64,
+    ctime: i64,
+    ctime_nsec: i64,
+}
+
+impl FileIdentity {
+    fn of(path: &Path) -> Option<FileIdentity> {
+        let metadata = fs::metadata(path).ok()?;
+        Some(FileIdentity {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            ctime: metadata.ctime(),
+            ctime_nsec: metadata.ctime_nsec(),
+        })
+    }
+}
+
+fn tz_file_path(env_tz: &str) -> Option<&Path> {
+    let path = Path::new(env_tz.strip_prefix(':').unwrap_or(env_tz));
+    path.is_absolute().then_some(path)
 }
 
 impl Source {
@@ -46,7 +74,7 @@ impl Source {
                 let mut hasher = hash_map::DefaultHasher::new();
                 hasher.write(tz.as_bytes());
                 let hash = hasher.finish();
-                Source::Environment { hash }
+                Source::Environment { hash, tz_file: tz_file_path(tz).and_then(FileIdentity::of) }
             }
             None => match fs::symlink_metadata("/etc/localtime") {
                 Ok(data) => Source::LocalTime {
@@ -121,25 +149,7 @@ impl Cache {
                 let env_ref = env_tz.as_deref();
                 let new_source = Source::new(env_ref);
 
-                let out_of_date = match (&self.source, &new_source) {
-                    // change from env to file or file to env, must recreate the zone
-                    (Source::Environment { .. }, Source::LocalTime { .. })
-                    | (Source::LocalTime { .. }, Source::Environment { .. }) => true,
-                    // stay as file, but mtime has changed
-                    (Source::LocalTime { mtime: old_mtime }, Source::LocalTime { mtime })
-                        if old_mtime != mtime =>
-                    {
-                        true
-                    }
-                    // stay as env, but hash of variable has changed
-                    (Source::Environment { hash: old_hash }, Source::Environment { hash })
-                        if old_hash != hash =>
-                    {
-                        true
-                    }
-                    // cache can be reused
-                    _ => false,
-                };
+                let out_of_date = self.source != new_source;
 
                 if out_of_date {
                     self.zone = current_zone(env_ref);
