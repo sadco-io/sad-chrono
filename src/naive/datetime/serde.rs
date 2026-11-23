@@ -1,7 +1,7 @@
 use core::fmt;
 use serde::{de, ser};
 
-use super::NaiveDateTime;
+use super::{DateTimeSeparator, NaiveDateTime, parse_iso8601};
 
 /// Serialize a `NaiveDateTime` as an ISO 8601 string
 ///
@@ -38,10 +38,12 @@ impl de::Visitor<'_> for NaiveDateTimeVisitor {
     where
         E: de::Error,
     {
-        value.parse().map_err(E::custom)
+        parse_iso8601(value, DateTimeSeparator::T).map_err(E::custom)
     }
 }
 
+/// Deserialize a `NaiveDateTime` from the ISO 8601 string that `Serialize` writes,
+/// with a `T` between the date and the time.
 impl<'de> de::Deserialize<'de> for NaiveDateTime {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
