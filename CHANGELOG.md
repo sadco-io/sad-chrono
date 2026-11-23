@@ -10,17 +10,52 @@ earlier ones further down this file.
 Entries reference the upstream chrono pull request or issue each change came
 from, as `chrono#NNNN`.
 
-## Unreleased
+## sad-chrono 0.5.2
+
+Patch release on the 0.5 line. Public API, MSRV (Rust 1.85.0), and serde/rkyv
+wire formats are unchanged from `0.5.1`. It fixes wrong `Local` results at
+daylight-saving transitions on Unix and three parsing and caching bugs. Two of
+the fixes change results that callers can observe; they are marked below.
 
 ### Fixes
 
+* Unix: resolve local times at daylight-saving transitions from the periods in
+  which each offset applies (chrono#1824). `Local.from_local_datetime` and the
+  other local-to-UTC lookups previously treated the instant a transition ends
+  as part of it, for both TZif transitions and POSIX `TZ` rules:
+  * A local time at the start of a gap (Europe/Berlin `2026-03-29 02:00`) now
+    maps to `None` instead of an instant that has a different wall time.
+  * A local time at the end of a fold (Europe/Berlin `2026-10-25 03:00`) now
+    maps to a single instant instead of `Ambiguous`.
+  * **Behavior change:** inside a fold, `MappedLocalTime::Ambiguous` now lists
+    the earlier instant first, as documented. Before, the candidates were
+    ordered by offset, so `earliest()` returned the later instant and
+    `latest()` the earlier one for a normal daylight-saving fold.
+  * A POSIX rule whose daylight-saving period is empty no longer reports its
+    local times as nonexistent.
+
+  Windows uses a separate lookup and is unchanged. By Sebastian Sala (#18).
+* `NaiveDateTime::from_str` accepts a space in place of the `T` between the
+  date and the time, so the `Display` output (`2016-07-08 00:00:00`) parses
+  back to the same value (chrono#1792). **Behavior change:** such strings
+  previously failed with `ParseError(Invalid)`. Whitespace after that space is
+  skipped, as it is before every numeric field. Inputs with a `T` parse as
+  before, and serde deserialization still requires the `T`. By Sebastian Sala
+  (#17).
+* Unix: reload `Local` when the TZif file named by an absolute path in `TZ`
+  (with or without a leading `:`) is replaced or modified, including through a
+  symlink. The cache compared only the `TZ` string, so the first offset read
+  stayed in use for the rest of the thread. The file's device, inode, and
+  change time are now compared at the existing one-second revalidation; the
+  file is not opened for this check. By Sebastian Sala (#16).
 * Parse the offsets that `%::z` and `%:::z` format. `%::z` now reads an
   optional `:00` through `:59` after the minutes as offset seconds, so
   `+01:02:03` parses as that offset instead of failing with `TooLong`.
   `%:::z` now accepts an hours-only offset such as `-05` when no digit follows
   the hours and their separator. Other inputs that `%::z` and `%:::z` accepted
-  before parse as before. `%z`, `%:z`, `%#z`, and RFC 3339 parsing are
-  unchanged.
+  before parse as before, except that a `:SS` after `%::z` now belongs to the
+  offset even when a later item such as `:%S` used to read it. `%z`, `%:z`,
+  `%#z`, and RFC 3339 parsing are unchanged. By Sebastian Sala (#15).
 
 ### CI
 
